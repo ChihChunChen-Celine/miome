@@ -1,0 +1,43 @@
+Package: miome
+Title: Microbiome Explorer
+Version: 0.1.1
+Authors@R: person(
+    "Your Name",
+    email = "your@email.com",
+    role  = c("aut", "cre")
+  )
+Description: Interactive Shiny app for PCoA, alpha diversity (LMM),
+    taxonomy bar plots, beta diversity statistics, and MaAsLin3
+    differential abundance analysis of microbiome data.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Imports:
+    shiny (>= 1.7.0),
+    plotly,
+    DT,
+    vegan,
+    ggplot2,
+    RColorBrewer,
+    tidyr,
+    dplyr,
+    tibble,
+    openxlsx,
+    rlang,
+    lmerTest,
+    permute,
+    magrittr,
+    stats,
+    utils,
+    grDevices
+Suggests:
+    maaslin3,
+    lme4,
+    ape,
+    magick,
+    reticulate,
+    devtools,
+    BiocManager,
+    testthat,
+    knitr,
+    rmarkdown
+Config/roxygen2/version: 8.0.0
