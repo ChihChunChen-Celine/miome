@@ -7,7 +7,7 @@
 run_alpha_lmm(
   meta_enriched,
   metric = "Shannon",
-  fixed_effects = c("Treatment", "Timepoint", "Sequence"),
+  fixed_formula = "Treatment + Timepoint + Sequence",
   random_effect = "CatID",
   treatment_ref = "CON",
   treatment_col = "Treatment",
@@ -16,15 +16,15 @@ run_alpha_lmm(
 )
 }
 \arguments{
-\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}
-(output of \code{prepare_all()} in data.R).}
+\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.}
 
-\item{metric}{Alpha diversity column to model (e.g.
-\code{"Shannon"}).}
+\item{metric}{Alpha diversity column to model (e.g. \code{"Shannon"}).}
 
-\item{fixed_effects}{Character vector of fixed effect column names.
-Default: \code{c("Treatment", "Timepoint", "Sequence")}.
-Add \code{"Baseline_Shannon"} (or relevant metric) here if present.}
+\item{fixed_formula}{Free-text fixed-effects formula fragment (no
+leading \code{~}, no random effect term). Supports \code{+}, \code{*},
+\code{:}. Column names with spaces or special characters must be
+backtick-quoted, e.g. \code{`Time Point`}.
+Default: \code{"Treatment + Timepoint + Sequence"}.}
 
 \item{random_effect}{Metadata column for the random intercept
 (default \code{"CatID"}).}
@@ -41,18 +41,13 @@ Add \code{"Baseline_Shannon"} (or relevant metric) here if present.}
 \item{padj_method}{p-value adjustment method (default \code{"BH"}).}
 }
 \value{
-A data frame with one row per model term containing:
-  Metric, Term, Estimate, SE, df, t_value, p_value, p_adjusted,
-  and the model formula used.
+A data frame with one row per model term.
 }
 \description{
-Designed for the 2x2 crossover design:
-\code{metric ~ Treatment + Baseline_metric + Timepoint + Sequence
-              + (1|CatID)}
-}
-\details{
-Any subset of fixed effects can be included via \code{fixed_effects}.
-The random effect (\code{random_effect}) is always \code{CatID} by
-default to account for repeated measures within each cat.
-Baseline samples are automatically excluded.
+Accepts a free-text fixed-effects formula fragment, so interactions are
+supported directly, e.g. \code{fixed_formula = "Treatment * Timepoint"}
+or \code{"Treatment + Timepoint + Treatment:Sequence"}.
+The random effect (\code{random_effect}) is always a single random
+intercept, e.g. \code{(1|CatID)}. Baseline samples are automatically
+excluded.
 }

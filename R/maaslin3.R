@@ -61,53 +61,56 @@ prepare_maaslin_input <- function(otu_path,
   otu_use  <- otu_raw[, shared, drop = FALSE]
   meta_use <- meta_use[shared, , drop = FALSE]
 
-  # ── Collapse taxonomy (same as before) ────────────────────────
-  if (!is.null(level) && level != "Species") {
-    prefix <- TAXA_PREFIXES[[level]]
-
-    # Always build the feature name from the FULL resolved lineage up to
-    # and including the target rank (e.g. "Firmicutes_Clostridia_
-    # Lachnospiraceae_uncultured"), rather than keying off the single
-    # tag at that rank. This keeps every feature distinct - two
-    # "uncultured" genera from different families no longer collapse
-    # into one shared feature when aggregate() sums by taxon below, and
-    # a clade with no tag at all is no longer silently dropped as long
-    # as an ancestor rank is resolved.
-    .extract_level_local <- function(clade, pfx) {
-      parts <- trimws(unlist(strsplit(as.character(clade), ";")))
-
-      .rank_val <- function(p) {
-        tgt <- parts[grep(paste0("^", p, "__"), parts)]
-        if (length(tgt) == 0) return(NA_character_)
-        v <- sub(paste0(p, "__"), "", tgt[1])
-        if (v == "" || v == "_") NA_character_ else v
-      }
-
-      rank_order <- unname(TAXA_PREFIXES)
-      target_i   <- match(pfx, rank_order)
-      ranks_upto <- rank_order[seq_len(target_i)]
-
-      vals <- vapply(ranks_upto, .rank_val, character(1))
-      vals <- vals[!is.na(vals)]
-      if (length(vals) == 0) return(NA_character_)
-      paste(vals, collapse = "_")
+  # ── Collapse taxonomy ─────────────────────────────────────────
+  # Build the feature name from the FULL resolved lineage up to and
+  # including the target rank (e.g. "Firmicutes_Clostridia_
+  # Lachnospiraceae_Blautia_wexlerae"), rather than keying off the single
+  # tag at that rank. This keeps every feature distinct - two species
+  # sharing an epithet from different genera no longer collapse into one
+  # shared feature when aggregate() sums by taxon, and a clade with no tag
+  # at the target rank is dropped only if NO ancestor rank is resolved.
+  .extract_level_local <- function(clade, pfx) {
+    parts <- trimws(unlist(strsplit(as.character(clade), ";")))
+    .rank_val <- function(p) {
+      tgt <- parts[grep(paste0("^", p, "__"), parts)]
+      if (length(tgt) == 0) return(NA_character_)
+      v <- sub(paste0(p, "__"), "", tgt[1])
+      if (v == "" || v == "_") NA_character_ else v
     }
+    rank_order <- unname(TAXA_PREFIXES)
+    target_i   <- match(pfx, rank_order)
+    if (is.na(target_i))
+      stop(sprintf("Prefix '%s' not found in TAXA_PREFIXES.", pfx),
+           call. = FALSE)
+    ranks_upto <- rank_order[seq_len(target_i)]
+    vals <- vapply(ranks_upto, .rank_val, character(1))
+    vals <- vals[!is.na(vals)]
+    if (length(vals) == 0) return(NA_character_)
+    paste(vals, collapse = "_")
+  }
+
+  if (!is.null(level)) {
+    prefix <- TAXA_PREFIXES[[level]]
+    if (is.null(prefix))
+      stop(sprintf(
+        "Unknown taxonomic level '%s'. Known levels: %s",
+        level, paste(names(TAXA_PREFIXES), collapse = ", ")
+      ), call. = FALSE)
+
+    # Applies to EVERY level including Species - full lineage up to target
     taxa_labels <- vapply(rownames(otu_use), .extract_level_local,
                           FUN.VALUE = character(1), pfx = prefix)
     keep        <- !is.na(taxa_labels)
     otu_use     <- otu_use[keep, , drop = FALSE]
     taxa_labels <- taxa_labels[keep]
-    otu_df <- data.frame(taxon = taxa_labels, otu_use, check.names = FALSE)
+
+    otu_df  <- data.frame(taxon = taxa_labels, otu_use, check.names = FALSE)
     otu_agg <- stats::aggregate(. ~ taxon, data = otu_df, FUN = sum)
     rownames(otu_agg) <- otu_agg$taxon
     otu_agg$taxon     <- NULL
     features <- as.data.frame(t(otu_agg), check.names = FALSE)
   } else {
-    clean_names <- vapply(rownames(otu_use), function(x) {
-      parts <- unlist(strsplit(x, ";"))
-      trimws(parts[length(parts)])
-    }, FUN.VALUE = character(1))
-    rownames(otu_use) <- make.unique(clean_names)
+    # No level specified: keep original row names as-is
     features <- as.data.frame(t(otu_use), check.names = FALSE)
   }
 
@@ -207,11 +210,19 @@ run_maaslin <- function(features,
     stop("Grouping factor and random effect cannot be the same column.",
          call. = FALSE)
 
-  fixed_term_labels <- tryCatch(
-    attr(stats::terms(stats::as.formula(paste("~", formula_str))),
-         "term.labels"),
-    error = function(e) character(0)
+  fixed_fml <- tryCatch(
+    stats::as.formula(paste("~", formula_str)),
+    error = function(e) NULL
   )
+  fixed_term_labels <- if (is.null(fixed_fml)) character(0)
+  else attr(stats::terms(fixed_fml), "term.labels")
+  # Underlying VARIABLES (not term labels) - all.vars() correctly pulls
+  # out e.g. Treatment and Timepoint from "Treatment:Timepoint" and never
+  # returns the interaction label itself, so column existence checks and
+  # metadata subsetting below don't look for a non-existent
+  # "Treatment:Timepoint" column.
+  fixed_vars <- if (is.null(fixed_fml)) character(0)
+  else all.vars(fixed_fml)      # base::all.vars, NOT stats::
 
   if (!is.null(group_var) && group_var %in% fixed_term_labels)
     stop(sprintf("'%s' used as grouping factor is also in formula.",
@@ -222,7 +233,7 @@ run_maaslin <- function(features,
 
   # ── Trim metadata to only columns we need (INSIDE now) ────────
   needed <- unique(c(
-    fixed_term_labels,
+    fixed_vars,                    # <-- was fixed_term_labels
     if (!is.null(group_var))   group_var   else character(),
     if (!is.null(rand_effect)) rand_effect else character()
   ))

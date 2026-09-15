@@ -7,7 +7,7 @@
 run_alpha_lm_simple(
   meta_enriched,
   metric = "Shannon",
-  fixed_effects = c("Treatment", "Timepoint", "Sequence"),
+  fixed_formula = "Treatment + Timepoint + Sequence",
   treatment_ref = "CON",
   treatment_col = "Treatment",
   is_baseline_col = "IsBaseline",
@@ -15,15 +15,15 @@ run_alpha_lm_simple(
 )
 }
 \arguments{
-\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}
-(output of \code{prepare_all()} in data.R).}
+\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.}
 
-\item{metric}{Alpha diversity column to model (e.g.
-\code{"Shannon"}).}
+\item{metric}{Alpha diversity column to model (e.g. \code{"Shannon"}).}
 
-\item{fixed_effects}{Character vector of fixed effect column names.
-Default: \code{c("Treatment", "Timepoint", "Sequence")}.
-Add \code{"Baseline_Shannon"} (or relevant metric) here if present.}
+\item{fixed_formula}{Free-text fixed-effects formula fragment (no
+leading \code{~}, no random effect term). Supports \code{+}, \code{*},
+\code{:}. Column names with spaces or special characters must be
+backtick-quoted, e.g. \code{`Time Point`}.
+Default: \code{"Treatment + Timepoint + Sequence"}.}
 
 \item{treatment_ref}{Reference level for the treatment variable
 (default \code{"CON"}).}

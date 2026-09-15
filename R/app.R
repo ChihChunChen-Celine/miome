@@ -386,13 +386,23 @@ run_app <- function() {
         shiny::tags$b("Step 2 - Alpha diversity LMM"),
         shiny::br(), shiny::br(),
 
-        shiny::selectizeInput(
-          "lmm_fixed_effects",
-          "Fixed effects (covariates):",
-          choices  = setdiff(
-            colnames(rv$meta_enriched),
-            c("SampleID", cfg$is_baseline_col)
-          ),
+        shiny::textInput(
+          "alpha_fixed_effects",           # new, unique ID
+          "Fixed effects (formula, no leading '~'):",
+          value = paste(
+            intersect(
+              c(cfg$timepoint_col, cfg$treatment_col),
+              colnames(rv$meta_enriched)
+            ),
+            collapse = " * "               # default to an INTERACTION model
+          )
+        ),
+        shiny::tags$div(
+          class = "info-box",
+          "Supports interactions, e.g. \"Treatment * Timepoint\". Column names ",
+          "with spaces need backticks. Do NOT include Baseline_<metric> \u2014 ",
+          "it is added automatically if present."
+        ),
           selected = intersect(
             c(cfg$timepoint_col,
               cfg$sequence_col,
@@ -405,7 +415,7 @@ run_app <- function() {
             placeholder  = "Click to select fixed effects...",
             plugins      = list("remove_button"),  # shows  on each chip
             maxOptions   = 200
-          )
+
         ),
         shiny::selectInput(
           "lmm_random_effect",
@@ -540,7 +550,22 @@ run_app <- function() {
                %s (carryover), and a Baseline_* numeric covariate.",
               cfg$timepoint_col, cfg$sequence_col
             )
-          )
+          ),
+          shiny::textInput(
+            "beta_formula",
+            "OR type a full model formula (overrides covariates + primary variable):",
+            value = ""
+          ),
+          shiny::tags$div(
+            class = "info-box",
+            "Leave blank to use the dropdown (covariates + primary variable). ",
+            "Fill in to type a full model with interactions, e.g. ",
+            "\"Treatment * Timepoint\" or ",
+            "\"Timepoint + Treatment + Treatment:Timepoint\". ",
+            "Column names with spaces need backticks. When used, the results ",
+            "table shows every model term (each with its own R\u00b2 and p-value). ",
+            "PERMANOVA only \u2014 ignored for ANOSIM."
+          ),
         ),
 
         # -- ANOSIM covariate warning ---------------------------------
@@ -638,20 +663,23 @@ run_app <- function() {
           selected = "Genus"
         ),
         shiny::textInput(
-          "maaslin_formula", "Fixed effects (formula, no leading '~'):",
+          "maaslin_formula",
+          "Fixed effects (formula, no leading '~'):",
           value = paste(
             intersect(
               c(cfg$timepoint_col, cfg$sequence_col, cfg$treatment_col),
-              meta_cols
+              colnames(rv$meta_enriched)
             ),
             collapse = " + "
           )
         ),
         shiny::tags$div(
           class = "info-box",
-          "e.g. \"Treatment + Timepoint + Baseline_Shannon\". Do not
-           include the grouping factor or random effect here \u2014
-           set those separately below."
+          "Supports interactions, e.g. \"Treatment * Timepoint\" or ",
+          "\"Treatment + Timepoint + Treatment:Sequence\". Column names with ",
+          "spaces need backticks, e.g. \"Treatment * `Time Point`\". The ",
+          "baseline covariate (Baseline_<metric>) is added automatically when ",
+          "available - don't include it here."
         ),
         shiny::selectInput(
           "maaslin_group_var",
@@ -791,6 +819,15 @@ run_app <- function() {
         input$covariates else NULL
 
       strata <- if (nchar(input$strata_var) > 0) input$strata_var else NULL
+      # Free-text formula only applies to PERMANOVA global tests.
+      beta_fml <- if (input$stat_method == "permanova" &&
+                      input$stat_scope == "global" &&
+                      !is.null(input$beta_formula) &&
+                      nzchar(trimws(input$beta_formula))) {
+        trimws(input$beta_formula)
+      } else {
+        NULL
+      }
 
       tryCatch({
         res <- shiny::withProgress(
@@ -802,7 +839,8 @@ run_app <- function() {
                 method       = input$stat_method,
                 covariates   = covs,
                 strata       = strata,
-                permutations = input$stat_perm
+                permutations = input$stat_perm,
+                formula_rhs  = beta_fml
               )
             } else {
               run_pairwise_test(
@@ -1036,7 +1074,7 @@ run_app <- function() {
           message = "Fitting linear mixed models...", value = 0.3, {
             run_alpha_lmm_all_metrics(
               meta_enriched   = rv$meta_enriched,
-              fixed_effects   = input$lmm_fixed_effects,
+              fixed_formula   = input$alpha_fixed_effects,
               random_effect   = input$lmm_random_effect,
               treatment_ref   = input$treat_ref,
               treatment_col   = cfg$treatment_col,
@@ -1056,7 +1094,7 @@ run_app <- function() {
 
     # -- Alpha LMM formula info -----------------------------------------
     output$alpha_lmm_info_ui <- shiny::renderUI({
-      shiny::req(rv$obj, input$lmm_fixed_effects, input$lmm_random_effect)
+      shiny::req(rv$obj, input$alpha_fixed_effects, input$lmm_random_effect)
 
       shiny::tags$div(
         class = "info-box",
@@ -1065,13 +1103,10 @@ run_app <- function() {
             "Model: Alpha ~ Baseline_&lt;metric&gt; + %s + (1|%s).  ",
             "Reference: %s.<br>",
             "Baseline <b>samples</b> are excluded from the model rows, but ",
-            "each subject's baseline <b>value</b> (e.g. Baseline_Shannon for ",
-            "the Shannon model, Baseline_Observed for Observed_ASVs) is ",
-            "automatically added as the first covariate when available, so ",
-            "the Treatment effect is estimated adjusting for where each ",
-            "subject started."
+            "each subject's baseline <b>value</b> is automatically added as ",
+            "the first covariate when available."
           ),
-          paste(input$lmm_fixed_effects, collapse = " + "),
+          input$alpha_fixed_effects,
           input$lmm_random_effect,
           if (!is.null(input$treat_ref)) input$treat_ref else "(not set)"
         ))

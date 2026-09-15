@@ -6,7 +6,7 @@
 \usage{
 run_alpha_lmm_all_metrics(
   meta_enriched,
-  fixed_effects = c("Timepoint", "Sequence", "Treatment"),
+  fixed_formula = "Timepoint + Sequence + Treatment",
   random_effect = "CatID",
   treatment_ref = "CON",
   treatment_col = "Treatment",
@@ -16,10 +16,6 @@ run_alpha_lmm_all_metrics(
 }
 \arguments{
 \item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.}
-
-\item{fixed_effects}{Character vector of fixed effects to include
-(excluding the auto-detected baseline covariate).
-Default: \code{c("Timepoint", "Sequence", "Treatment")}.}
 
 \item{random_effect}{Subject ID column for random intercept
 (default \code{"CatID"}).}
@@ -32,6 +28,10 @@ Default: \code{c("Timepoint", "Sequence", "Treatment")}.}
 \item{is_baseline_col}{Baseline flag column (default \code{"IsBaseline"}).}
 
 \item{padj_method}{p-value adjustment method (default \code{"BH"}).}
+
+\item{fixed_effects}{Character vector of fixed effects to include
+(excluding the auto-detected baseline covariate).
+Default: \code{c("Timepoint", "Sequence", "Treatment")}.}
 }
 \value{
 A combined data frame with one row per model term per metric,

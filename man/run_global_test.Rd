@@ -11,7 +11,8 @@ run_global_test(
   covariates = NULL,
   strata = NULL,
   permutations = 999,
-  exclude_baseline = TRUE
+  exclude_baseline = TRUE,
+  formula_rhs = NULL
 )
 }
 \arguments{
