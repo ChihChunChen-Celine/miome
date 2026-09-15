@@ -403,20 +403,7 @@ run_app <- function() {
           "with spaces need backticks. Do NOT include Baseline_<metric> \u2014 ",
           "it is added automatically if present."
         ),
-          selected = intersect(
-            c(cfg$timepoint_col,
-              cfg$sequence_col,
-              cfg$treatment_col,
-              paste0("Baseline_", cfg$alpha_metrics)),
-            colnames(rv$meta_enriched)
-          ),
-          multiple = TRUE,
-          options  = list(
-            placeholder  = "Click to select fixed effects...",
-            plugins      = list("remove_button"),  # shows  on each chip
-            maxOptions   = 200
 
-        ),
         shiny::selectInput(
           "lmm_random_effect",
           "Random effect (grouping / subject ID):",
