@@ -53,11 +53,13 @@
 # it's treated as raw counts. This mirrors the per-column check used in the
 # standalone summarize_abundance.R script, just transposed to this table's
 # orientation.
+# In .detect_otu_scale() - replace entirely
 .detect_otu_scale <- function(otu_mat, tol = 1) {
-  row_sums <- rowSums(otu_mat, na.rm = TRUE)
-  if (length(row_sums) == 0 || all(row_sums == 0)) return("counts")
-  pct_frac <- mean(abs(row_sums - 100) <= tol)
-  if (pct_frac >= 0.5) "percent" else "counts"
+  max_val <- max(otu_mat, na.rm = TRUE)
+  min_val <- min(otu_mat, na.rm = TRUE)
+
+  if (min_val >= 0 && max_val <= 100) return("percent")
+  return("counts")
 }
 
 # -- Internal helper: convert an OTU table to relative abundance (%) ----------
@@ -81,51 +83,68 @@
 # percent data (see compute_alpha_diversity()), so alpha diversity keeps
 # working on whatever scale was actually uploaded.
 .to_relative_abundance <- function(otu_mat, tol = 1) {
-  row_sums <- rowSums(otu_mat, na.rm = TRUE)
-
+  row_sums  <- rowSums(otu_mat, na.rm = TRUE)
   zero_rows <- rownames(otu_mat)[row_sums == 0]
   if (length(zero_rows) > 0)
     warning(sprintf(
-      "Sample(s) with a total abundance of 0 - left as 0 after conversion: %s",
+      "Sample(s) with total abundance of 0 - left as 0: %s",
       paste(zero_rows, collapse = ", ")
     ))
 
-  is_percent  <- abs(row_sums - 100) <= tol
-  n_total     <- length(row_sums)
-  n_percent   <- sum(is_percent)
-  convert_rows <- rownames(otu_mat)[!is_percent & row_sums > 0]
-  n_converted  <- length(convert_rows)
+  # --- KEY FIX: use value-range check, NOT row-sum check ----------
+  # Row sums are meaningless for MetaPhlAn tables because multiple
+  # taxonomic levels stack up - a single sample column can sum to
+  # 500+ even when every individual value is a valid percentage.
+  # Checking max value <= 100 is the correct signal for percent data.
+  max_val        <- max(otu_mat, na.rm = TRUE)
+  min_val        <- min(otu_mat, na.rm = TRUE)
+  already_pct    <- min_val >= 0 && max_val <= 100
+  n_total        <- nrow(otu_mat)
 
-  # message() only reaches the R/Shiny SERVER console or log - never the
-  # browser UI, so it's invisible on a deployed app. Attaching the same
-  # detection result as an attribute lets callers (prepare_pcoa(),
-  # prepare_maaslin_input()) pass it up into the pcoa_obj / prepped-input
-  # list, where app.R can render it as an actual on-screen info box - see
-  # output$otu_scale_info_ui and the MaAsLin3 info panel in app.R.
+  if (already_pct) {
+    message(sprintf(
+      paste0(
+        "Relative-abundance check: all values in [0, 100] ",
+        "(max = %.4g) - treating all %d sample(s) as percent; ",
+        "no conversion applied."
+      ),
+      max_val, n_total
+    ))
+    out <- otu_mat
+    attr(out, "scale_info") <- list(
+      n_total           = n_total,
+      n_already_percent = n_total,   # all samples treated as percent
+      n_converted       = 0L,
+      converted_samples = character(0),
+      tol               = tol
+    )
+    return(out)
+  }
+
+  # Values > 100 exist -> raw counts -> convert each row
   message(sprintf(
     paste0(
-      "Relative-abundance check: %d of %d sample(s) already look like ",
-      "percent (row sum ~100, tol=%.1f) and were left as-is; %d ",
-      "sample(s) looked like raw counts and were converted to percent."
+      "Relative-abundance check: max value = %.4g (> 100) - ",
+      "treating all %d sample(s) as raw counts; ",
+      "converting to percent."
     ),
-    n_percent, n_total, tol, n_converted
+    max_val, n_total
   ))
 
-  out <- otu_mat
-  if (n_converted > 0) {
-    out[convert_rows, ] <- sweep(
-      otu_mat[convert_rows, , drop = FALSE],
-      MARGIN = 1,
-      STATS  = row_sums[convert_rows],
-      FUN    = "/"
-    ) * 100
-  }
+  out          <- otu_mat
+  nonzero_rows <- rownames(otu_mat)[row_sums > 0]
+  out[nonzero_rows, ] <- sweep(
+    otu_mat[nonzero_rows, , drop = FALSE],
+    MARGIN = 1,
+    STATS  = row_sums[nonzero_rows],
+    FUN    = "/"
+  ) * 100
 
   attr(out, "scale_info") <- list(
     n_total           = n_total,
-    n_already_percent = n_percent,
-    n_converted       = n_converted,
-    converted_samples = convert_rows,
+    n_already_percent = 0L,
+    n_converted       = length(nonzero_rows),
+    converted_samples = nonzero_rows,
     tol               = tol
   )
   out

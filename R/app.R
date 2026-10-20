@@ -377,359 +377,417 @@ run_app <- function() {
       cfg       <- rv$obj$config
 
       shiny::tagList(
-
-        # -- Data scale detected for beta diversity (visible immediately) --
+        # -- Data scale detected (always visible, above the tabs) ------
         shiny::uiOutput("otu_scale_info_sidebar_ui"),
         shiny::tags$hr(),
 
-        # -- Step 2: Alpha diversity LMM -----------------------------
-        shiny::tags$b("Step 2 - Alpha diversity LMM"),
-        shiny::br(), shiny::br(),
+        shiny::tabsetPanel(
+          id = "sidebar_tabs",
+          type = "pills",   # "pills" is more compact than "tabs" in a sidebar
 
-        shiny::textInput(
-          "alpha_fixed_effects",           # new, unique ID
-          "Fixed effects (formula, no leading '~'):",
-          value = paste(
-            intersect(
-              c(cfg$timepoint_col, cfg$treatment_col),
-              colnames(rv$meta_enriched)
+          # ================= TAB: Alpha =================
+          shiny::tabPanel(
+            "Alpha",
+            shiny::br(),
+            shiny::tags$b("Alpha diversity LMM"),
+            shiny::br(), shiny::br(),
+            shiny::textInput(
+              "alpha_fixed_effects",
+              "Fixed effects (formula, no leading '~'):",
+              value = paste(
+                intersect(
+                  c(cfg$timepoint_col, cfg$treatment_col),
+                  colnames(rv$meta_enriched)
+                ),
+                collapse = " * "
+              )
             ),
-            collapse = " * "               # default to an INTERACTION model
-          )
-        ),
-        shiny::tags$div(
-          class = "info-box",
-          "Supports interactions, e.g. \"Treatment * Timepoint\". Column names ",
-          "with spaces need backticks. Do NOT include Baseline_<metric> \u2014 ",
-          "it is added automatically if present."
-        ),
-
-        shiny::selectInput(
-          "lmm_random_effect",
-          "Random effect (grouping / subject ID):",
-          choices  = colnames(rv$meta_enriched),
-          selected = if (cfg$subject_id_col %in% colnames(rv$meta_enriched))
-            cfg$subject_id_col else colnames(rv$meta_enriched)[1]
-        ),
-
-        shiny::selectInput(
-          "treat_ref", "Treatment reference level:",
-          choices = sort(unique(as.character(
-            rv$meta_enriched[
-              rv$meta_enriched[[cfg$is_baseline_col]] == FALSE,
-              cfg$treatment_col
-            ]
-          )))
-        ),
-        shiny::actionButton(
-          "run_alpha_lmm", "Run alpha diversity LMM",
-          class = "btn-warning btn-block"
-        ),
-        shiny::tags$div(
-          class = "info-box",
-          shiny::uiOutput("lmm_formula_info_ui")
-        ),
-        shiny::tags$hr(),
-
-        # -- Step 3: PCoA display options ------------------------------
-        shiny::tags$b("Step 3 - PCoA display options"),
-        shiny::br(), shiny::br(),
-        shiny::selectInput(
-          "color_var", "Colour by:",
-          choices  = meta_cols,
-          selected = if (cfg$treatment_col %in% meta_cols)
-            cfg$treatment_col else meta_cols[1]
-        ),
-        shiny::checkboxInput(
-          "is_cont",
-          "Treat as continuous (numeric gradient)?",
-          value = FALSE
-        ),
-        shiny::selectInput(
-          "palette", "Colour palette:",
-          choices = CAT_PALETTES
-        ),
-        shiny::checkboxInput("rev_pal", "Reverse palette", value = FALSE),
-        shiny::checkboxInput(
-          "connect_pairs",
-          "Connect paired samples (within-subject lines)",
-          value = identical(cfg$study_design, "crossover")
-        ),
-        shiny::tags$div(
-          class = "info-box",
-          sprintf(
-            "Draws a line between all samples sharing the same %s.
-             Most useful for crossover / repeated-measures designs.",
-            cfg$subject_id_col
-          )
-        ),
-        shiny::tags$hr(),
-
-        # -- 2D plot axes ---------------------------------------------
-        shiny::tags$b("2D plot axes"),
-        shiny::selectInput(
-          "pc_x", "X axis:",
-          choices  = setNames(1:3, c("PC1", "PC2", "PC3")),
-          selected = 1
-        ),
-        shiny::selectInput(
-          "pc_y", "Y axis:",
-          choices  = setNames(1:3, c("PC1", "PC2", "PC3")),
-          selected = 2
-        ),
-        shiny::tags$hr(),
-
-        # -- Downloads ------------------------------------------------
-        shiny::tags$b("Downloads"),
-        shiny::br(), shiny::br(),
-        shiny::downloadButton("dl_2d", "Download 2D (TIFF)"),
-        shiny::br(), shiny::br(),
-        shiny::downloadButton("dl_3d", "Download 3D (TIFF)"),
-        shiny::tags$hr(),
-
-        # -- Step 4: Statistical analysis ----------------------------
-        shiny::tags$b("Step 4 - Beta diversity statistics"),
-        shiny::br(), shiny::br(),
-        shiny::selectInput(
-          "stat_var", "Primary grouping variable:",
-          choices  = meta_cols,
-          selected = if (cfg$treatment_col %in% meta_cols)
-            cfg$treatment_col else meta_cols[1]
-        ),
-        shiny::selectInput(
-          "stat_method", "Test:",
-          choices = c("PERMANOVA" = "permanova",
-                      "ANOSIM"   = "anosim")
-        ),
-        shiny::radioButtons(
-          "stat_scope", "Scope:",
-          choices = c("Global"   = "global",
-                      "Pairwise" = "pairwise"),
-          inline  = TRUE
-        ),
-
-        # -- Covariates (PERMANOVA only) ------------------------------
-        shiny::conditionalPanel(
-          condition = "input.stat_method == 'permanova'",
-          shiny::selectizeInput(
-            "covariates",
-            "Covariates (added before primary variable in model):",
-            choices  = setdiff(
-              meta_cols,
-              c("SampleID", "PC1", "PC2", "PC3")
+            shiny::tags$div(
+              class = "info-box",
+              "Supports interactions, e.g. \"Treatment * Timepoint\". Column names ",
+              "with spaces need backticks. Do NOT include Baseline_<metric> \u2014 ",
+              "it is added automatically if present."
             ),
-            selected = intersect(
-              c(cfg$default_covariates,
-                paste0("Baseline_", cfg$alpha_metrics)),
-              meta_cols
+            shiny::selectInput(
+              "lmm_random_effect",
+              "Random effect (grouping / subject ID):",
+              choices  = colnames(rv$meta_enriched),
+              selected = if (cfg$subject_id_col %in% colnames(rv$meta_enriched))
+                cfg$subject_id_col else colnames(rv$meta_enriched)[1]
             ),
-            multiple = TRUE,
-            options  = list(
-              placeholder  = "Click to add covariates...",
-              plugins      = list("remove_button"),
-              maxOptions   = 200
+            shiny::selectInput(
+              "treat_ref", "Treatment reference level:",
+              choices = sort(unique(as.character(
+                rv$meta_enriched[
+                  rv$meta_enriched[[cfg$is_baseline_col]] == FALSE,
+                  cfg$treatment_col
+                ]
+              )))
+            ),
+            shiny::actionButton(
+              "run_alpha_lmm", "Run alpha diversity LMM",
+              class = "btn-warning btn-block"
+            ),
+            shiny::tags$div(
+              class = "info-box",
+              shiny::uiOutput("lmm_formula_info_ui")
             )
           ),
-          shiny::tags$div(
-            class = "info-box",
-            sprintf(
-              "For crossover design: include %s (period effect),
-               %s (carryover), and a Baseline_* numeric covariate.",
-              cfg$timepoint_col, cfg$sequence_col
+
+          # ================= TAB: PCoA =================
+          shiny::tabPanel(
+            "PCoA",
+            shiny::br(),
+            shiny::tags$b("PCoA display options"),
+            shiny::br(), shiny::br(),
+            shiny::selectInput(
+              "color_var", "Colour by:",
+              choices  = meta_cols,
+              selected = if (cfg$treatment_col %in% meta_cols)
+                cfg$treatment_col else meta_cols[1]
+            ),
+            shiny::checkboxInput(
+              "is_cont",
+              "Treat as continuous (numeric gradient)?",
+              value = FALSE
+            ),
+            shiny::selectInput(
+              "palette", "Colour palette:",
+              choices = CAT_PALETTES
+            ),
+            shiny::checkboxInput("rev_pal", "Reverse palette", value = FALSE),
+            shiny::checkboxInput(
+              "connect_pairs",
+              "Connect paired samples (within-subject lines)",
+              value = identical(cfg$study_design, "crossover")
+            ),
+            shiny::tags$div(
+              class = "info-box",
+              sprintf(
+                "Draws a line between all samples sharing the same %s.
+                 Most useful for crossover / repeated-measures designs.",
+                cfg$subject_id_col
+              )
+            ),
+            shiny::tags$hr(),
+            shiny::tags$b("2D plot axes"),
+            shiny::selectInput(
+              "pc_x", "X axis:",
+              choices  = setNames(1:3, c("PC1", "PC2", "PC3")),
+              selected = 1
+            ),
+            shiny::selectInput(
+              "pc_y", "Y axis:",
+              choices  = setNames(1:3, c("PC1", "PC2", "PC3")),
+              selected = 2
+            ),
+            shiny::tags$hr(),
+            shiny::tags$b("Downloads"),
+            shiny::br(), shiny::br(),
+            shiny::downloadButton("dl_2d", "Download 2D (TIFF)"),
+            shiny::br(), shiny::br(),
+            shiny::downloadButton("dl_3d", "Download 3D (TIFF)")
+          ),
+
+          # ================= TAB: Beta =================
+          shiny::tabPanel(
+            "Beta",
+            shiny::br(),
+            shiny::tags$b("Beta diversity statistics"),
+            shiny::br(), shiny::br(),
+            shiny::selectInput(
+              "stat_var", "Primary grouping variable:",
+              choices  = meta_cols,
+              selected = if (cfg$treatment_col %in% meta_cols)
+                cfg$treatment_col else meta_cols[1]
+            ),
+            shiny::selectInput(
+              "stat_method", "Test:",
+              choices = c("PERMANOVA" = "permanova",
+                          "ANOSIM"   = "anosim")
+            ),
+            shiny::radioButtons(
+              "stat_scope", "Scope:",
+              choices = c("Global"   = "global",
+                          "Pairwise" = "pairwise"),
+              inline  = TRUE
+            ),
+            shiny::conditionalPanel(
+              condition = "input.stat_method == 'permanova'",
+              shiny::selectizeInput(
+                "covariates",
+                "Covariates (added before primary variable in model):",
+                choices  = setdiff(
+                  meta_cols,
+                  c("SampleID", "PC1", "PC2", "PC3")
+                ),
+                selected = intersect(
+                  c(cfg$default_covariates,
+                    paste0("Baseline_", cfg$alpha_metrics)),
+                  meta_cols
+                ),
+                multiple = TRUE,
+                options  = list(
+                  placeholder  = "Click to add covariates...",
+                  plugins      = list("remove_button"),
+                  maxOptions   = 200
+                )
+              ),
+              shiny::tags$div(
+                class = "info-box",
+                sprintf(
+                  "For crossover design: include %s (period effect),
+                   %s (carryover), and a Baseline_* numeric covariate.",
+                  cfg$timepoint_col, cfg$sequence_col
+                )
+              ),
+              shiny::textInput(
+                "beta_formula",
+                "OR type a full model formula (overrides covariates + primary variable):",
+                value = ""
+              ),
+              shiny::tags$div(
+                class = "info-box",
+                "Leave blank to use the dropdown (covariates + primary variable). ",
+                "Fill in to type a full model with interactions, e.g. ",
+                "\"Treatment * Timepoint\" or ",
+                "\"Timepoint + Treatment + Treatment:Timepoint\". ",
+                "Column names with spaces need backticks. When used, the results ",
+                "table shows every model term (each with its own R\u00b2 and p-value). ",
+                "PERMANOVA only \u2014 ignored for ANOSIM."
+              )
+            ),
+            shiny::conditionalPanel(
+              condition = "input.stat_method == 'anosim'",
+              shiny::tags$div(
+                class = "warn-box",
+                "\u26a0 ANOSIM does not support covariates. Use PERMANOVA
+                 for covariate-adjusted analysis."
+              )
+            ),
+            shiny::selectInput(
+              "strata_var",
+              "Restrict permutations within (strata):",
+              choices  = c("None" = "", meta_cols),
+              selected = if (!is.null(cfg$default_strata) &&
+                             cfg$default_strata %in% meta_cols)
+                cfg$default_strata else ""
+            ),
+            shiny::tags$div(
+              class = "info-box",
+              sprintf(
+                "For crossover design: select %s to restrict permutations
+                 within each subject.", cfg$subject_id_col
+              )
+            ),
+            shiny::numericInput(
+              "stat_perm", "Permutations:",
+              value = 999, min = 99, max = 9999, step = 100
+            ),
+            shiny::selectInput(
+              "padj_method", "P-value adjustment:",
+              choices  = PADJ_METHODS,
+              selected = cfg$padj_method
+            ),
+            shiny::actionButton(
+              "run_stat", "Run beta diversity test",
+              class = "btn-success btn-block"
             )
           ),
-          shiny::textInput(
-            "beta_formula",
-            "OR type a full model formula (overrides covariates + primary variable):",
-            value = ""
-          ),
-          shiny::tags$div(
-            class = "info-box",
-            "Leave blank to use the dropdown (covariates + primary variable). ",
-            "Fill in to type a full model with interactions, e.g. ",
-            "\"Treatment * Timepoint\" or ",
-            "\"Timepoint + Treatment + Treatment:Timepoint\". ",
-            "Column names with spaces need backticks. When used, the results ",
-            "table shows every model term (each with its own R\u00b2 and p-value). ",
-            "PERMANOVA only \u2014 ignored for ANOSIM."
-          ),
-        ),
 
-        # -- ANOSIM covariate warning ---------------------------------
-        shiny::conditionalPanel(
-          condition = "input.stat_method == 'anosim'",
-          shiny::tags$div(
-            class = "warn-box",
-            "\u26a0 ANOSIM does not support covariates. Use PERMANOVA
-             for covariate-adjusted analysis."
-          )
-        ),
-
-        # -- Strata (restricted permutations) ------------------------
-        shiny::selectInput(
-          "strata_var",
-          "Restrict permutations within (strata):",
-          choices  = c("None" = "", meta_cols),
-          selected = if (!is.null(cfg$default_strata) &&
-                         cfg$default_strata %in% meta_cols)
-            cfg$default_strata else ""
-        ),
-        shiny::tags$div(
-          class = "info-box",
-          sprintf(
-            "For crossover design: select %s to restrict permutations
-             within each subject.", cfg$subject_id_col
-          )
-        ),
-        shiny::numericInput(
-          "stat_perm", "Permutations:",
-          value = 999, min = 99, max = 9999, step = 100
-        ),
-        shiny::selectInput(
-          "padj_method", "P-value adjustment:",
-          choices  = PADJ_METHODS,
-          selected = cfg$padj_method
-        ),
-        shiny::actionButton(
-          "run_stat", "Run beta diversity test",
-          class = "btn-success btn-block"
-        ),
-        shiny::tags$hr(),
-
-        # -- Step 5: Taxonomy bar plot --------------------------------
-        shiny::tags$b("Step 5 - Taxonomy bar plot"),
-        shiny::br(), shiny::br(),
-        shiny::selectInput(
-          "taxon_level", "Taxonomic level:",
-          choices  = TAXA_LEVELS,
-          selected = "Family"
-        ),
-        shiny::selectInput(
-          "taxon_group_var", "Facet / group by:",
-          choices  = meta_cols,
-          selected = if (cfg$treatment_col %in% meta_cols)
-            cfg$treatment_col else meta_cols[1]
-        ),
-        shiny::numericInput(
-          "taxon_top_n", "Top N taxa:",
-          value = 14L, min = 3L, max = 30L, step = 1L
-        ),
-        shiny::checkboxInput(
-          "taxon_exclude_baseline",
-          "Exclude baseline samples",
-          value = TRUE
-        ),
-        shiny::selectInput(
-          "taxon_x_label_var", "X-axis label:",
-          choices  = c("Sample ID" = "SampleID", meta_cols),
-          selected = "SampleID"
-        ),
-        shiny::selectInput(
-          "taxon_x_order_var", "Order bars by:",
-          choices  = c("Sample ID (alphabetical)" = "SampleID", meta_cols),
-          selected = "SampleID"
-        ),
-        shiny::tags$div(
-          class = "info-box",
-          "Label and order apply live \u2014 no need to re-click",
-          shiny::tags$i("Build taxonomy plot"),
-          "unless you change the taxonomic level or Top N."
-        ),
-        shiny::actionButton(
-          "run_taxon", "Build taxonomy plot",
-          class = "btn-info btn-block"
-        ),
-        shiny::tags$hr(),
-
-        # -- Step 6: MaAsLin3 -----------------------------------------
-        shiny::tags$b("Step 6 - MaAsLin3"),
-        shiny::br(), shiny::br(),
-        shiny::selectInput(
-          "maaslin_level", "Taxonomic level:",
-          choices  = TAXA_LEVELS,
-          selected = "Genus"
-        ),
-        shiny::textInput(
-          "maaslin_formula",
-          "Fixed effects (formula, no leading '~'):",
-          value = paste(
-            intersect(
-              c(cfg$timepoint_col, cfg$sequence_col, cfg$treatment_col),
-              colnames(rv$meta_enriched)
+          # ================= TAB: Taxonomy =================
+          shiny::tabPanel(
+            "Taxonomy",
+            shiny::br(),
+            shiny::tags$b("Taxonomy bar plot"),
+            shiny::br(), shiny::br(),
+            shiny::selectInput(
+              "taxon_level", "Taxonomic level:",
+              choices  = TAXA_LEVELS,
+              selected = "Family"
             ),
-            collapse = " + "
+            shiny::selectInput(
+              "taxon_group_var", "Facet / group by:",
+              choices  = meta_cols,
+              selected = if (cfg$treatment_col %in% meta_cols)
+                cfg$treatment_col else meta_cols[1]
+            ),
+            shiny::numericInput(
+              "taxon_top_n", "Top N taxa:",
+              value = 14L, min = 3L, max = 30L, step = 1L
+            ),
+            shiny::checkboxInput(
+              "taxon_exclude_baseline",
+              "Exclude baseline samples",
+              value = TRUE
+            ),
+            shiny::selectInput(
+              "taxon_x_label_var", "X-axis label:",
+              choices  = c("Sample ID" = "SampleID", meta_cols),
+              selected = "SampleID"
+            ),
+            shiny::selectInput(
+              "taxon_x_order_var", "Order bars by:",
+              choices  = c("Sample ID (alphabetical)" = "SampleID", meta_cols),
+              selected = "SampleID"
+            ),
+            shiny::tags$div(
+              class = "info-box",
+              "Label and order apply live \u2014 no need to re-click",
+              shiny::tags$i("Build taxonomy plot"),
+              "unless you change the taxonomic level or Top N."
+            ),
+            shiny::actionButton(
+              "run_taxon", "Build taxonomy plot",
+              class = "btn-info btn-block"
+            ),
+            shiny::tags$hr(),
+
+            # -- Step 5b: Descriptive taxa summary (Excel) ------------
+            shiny::tags$b("Descriptive taxa summary (Excel)"),
+            shiny::br(), shiny::br(),
+            shiny::selectizeInput(
+              "desc_group_cols",
+              "Group by (one or more columns):",
+              choices  = meta_cols,
+              selected = intersect(
+                c(cfg$treatment_col, cfg$timepoint_col), meta_cols
+              ),
+              multiple = TRUE,
+              options  = list(plugins = list("remove_button"))
+            ),
+            shiny::selectizeInput(
+              "desc_sort_cols",
+              "Order groups by (optional):",
+              choices  = meta_cols,
+              selected = intersect(
+                c(cfg$timepoint_col, cfg$treatment_col), meta_cols
+              ),
+              multiple = TRUE,
+              options  = list(
+                placeholder = "Blank = same order as grouping columns",
+                plugins     = list("remove_button")
+              )
+            ),
+            shiny::checkboxGroupInput(
+              "desc_levels", "Taxonomic levels:",
+              choices  = TAXA_LEVELS,
+              selected = setdiff(TAXA_LEVELS, "Domain"),
+              inline   = TRUE
+            ),
+            shiny::checkboxInput(
+              "desc_exclude_baseline",
+              "Exclude baseline samples",
+              value = FALSE
+            ),
+            shiny::tags$div(
+              class = "info-box",
+              "One sheet: each level (highest to lowest) with median, min, max ",
+              "and range of relative abundance (%) per group. Group labels are ",
+              "the grouping columns joined with '_'; the order of the groups ",
+              "follows the 'Order groups by' columns."
+            ),
+            shiny::downloadButton(
+              "dl_desc", "Download descriptive summary (.xlsx)"
+            )
+          ),
+
+          # ================= TAB: MaAsLin3 =================
+          shiny::tabPanel(
+            "MaAsLin3",
+            shiny::br(),
+            shiny::tags$b("MaAsLin3"),
+            shiny::br(), shiny::br(),
+            shiny::selectInput(
+              "maaslin_level", "Taxonomic level:",
+              choices  = TAXA_LEVELS,
+              selected = "Genus"
+            ),
+            shiny::textInput(
+              "maaslin_formula",
+              "Fixed effects (formula, no leading '~'):",
+              value = paste(
+                intersect(
+                  c(cfg$timepoint_col, cfg$sequence_col, cfg$treatment_col),
+                  colnames(rv$meta_enriched)
+                ),
+                collapse = " + "
+              )
+            ),
+            shiny::tags$div(
+              class = "info-box",
+              "Supports interactions, e.g. \"Treatment * Timepoint\" or ",
+              "\"Treatment + Timepoint + Treatment:Sequence\". Column names with ",
+              "spaces need backticks, e.g. \"Treatment * `Time Point`\". The ",
+              "baseline covariate (Baseline_<metric>) is added automatically when ",
+              "available - don't include it here."
+            ),
+            shiny::selectInput(
+              "maaslin_group_var",
+              "Grouping factor (optional, ANOVA-style group() term):",
+              choices  = c("None" = "", colnames(rv$meta_enriched)),
+              selected = ""
+            ),
+            shiny::checkboxInput(
+              "maaslin_use_random",
+              "Include random effect",
+              value = identical(cfg$study_design, "crossover")
+            ),
+            shiny::selectInput(
+              "maaslin_random_effect", "Random effect (grouping / subject ID):",
+              choices  = colnames(rv$meta_enriched),
+              selected = if (cfg$subject_id_col %in% colnames(rv$meta_enriched))
+                cfg$subject_id_col else colnames(rv$meta_enriched)[1]
+            ),
+            shiny::checkboxInput(
+              "maaslin_small_random",
+              "Random effect group sizes are small",
+              value = FALSE
+            ),
+            shiny::tags$div(
+              class = "info-box",
+              "When checked (small_random_effects = TRUE), MaAsLin3
+               automatically replaces the random effect with a fixed effect
+               in the logistic prevalence model for groups with few
+               observations."
+            ),
+            shiny::selectInput(
+              "maaslin_normalization", "Normalization:",
+              choices  = c("TSS", "CLR", "NONE"),
+              selected = "TSS"
+            ),
+            shiny::selectInput(
+              "maaslin_transform", "Transform:",
+              choices  = c("LOG", "PLOG", "NONE"),
+              selected = "LOG"
+            ),
+            shiny::numericInput(
+              "maaslin_min_prevalence", "Min prevalence:",
+              value = 0.1, min = 0, max = 1, step = 0.05
+            ),
+            shiny::numericInput(
+              "maaslin_min_abundance", "Min abundance:",
+              value = 0, min = 0, step = 0.001
+            ),
+            shiny::selectInput(
+              "maaslin_padj_method", "P-value adjustment:",
+              choices  = PADJ_METHODS,
+              selected = cfg$padj_method
+            ),
+            shiny::numericInput(
+              "maaslin_max_sig", "Max significance (q-value) reported:",
+              value = 0.25, min = 0, max = 1, step = 0.05
+            ),
+            shiny::actionButton(
+              "run_maaslin_btn", "Run MaAsLin3",
+              class = "btn-danger btn-block"
+            )
           )
-        ),
-        shiny::tags$div(
-          class = "info-box",
-          "Supports interactions, e.g. \"Treatment * Timepoint\" or ",
-          "\"Treatment + Timepoint + Treatment:Sequence\". Column names with ",
-          "spaces need backticks, e.g. \"Treatment * `Time Point`\". The ",
-          "baseline covariate (Baseline_<metric>) is added automatically when ",
-          "available - don't include it here."
-        ),
-        shiny::selectInput(
-          "maaslin_group_var",
-          "Grouping factor (optional, ANOVA-style group() term):",
-          choices  = c("None" = "", colnames(rv$meta_enriched)),
-          selected = ""
-        ),
-        shiny::checkboxInput(
-          "maaslin_use_random",
-          "Include random effect",
-          value = identical(cfg$study_design, "crossover")
-        ),
-        shiny::selectInput(
-          "maaslin_random_effect", "Random effect (grouping / subject ID):",
-          choices  = colnames(rv$meta_enriched),
-          selected = if (cfg$subject_id_col %in% colnames(rv$meta_enriched))
-            cfg$subject_id_col else colnames(rv$meta_enriched)[1]
-        ),
-        shiny::checkboxInput(
-          "maaslin_small_random",
-          "Random effect group sizes are small",
-          value = FALSE
-        ),
-        shiny::tags$div(
-          class = "info-box",
-          "When checked (small_random_effects = TRUE), MaAsLin3
-           automatically replaces the random effect with a fixed effect
-           in the logistic prevalence model for groups with few
-           observations."
-        ),
-        shiny::selectInput(
-          "maaslin_normalization", "Normalization:",
-          choices  = c("TSS", "CLR", "NONE"),
-          selected = "TSS"
-        ),
-        shiny::selectInput(
-          "maaslin_transform", "Transform:",
-          choices  = c("LOG", "PLOG", "NONE"),
-          selected = "LOG"
-        ),
-        shiny::numericInput(
-          "maaslin_min_prevalence", "Min prevalence:",
-          value = 0.1, min = 0, max = 1, step = 0.05
-        ),
-        shiny::numericInput(
-          "maaslin_min_abundance", "Min abundance:",
-          value = 0, min = 0, step = 0.001
-        ),
-        shiny::selectInput(
-          "maaslin_padj_method", "P-value adjustment:",
-          choices  = PADJ_METHODS,
-          selected = cfg$padj_method
-        ),
-        shiny::numericInput(
-          "maaslin_max_sig", "Max significance (q-value) reported:",
-          value = 0.25, min = 0, max = 1, step = 0.05
-        ),
-        shiny::actionButton(
-          "run_maaslin_btn", "Run MaAsLin3",
-          class = "btn-danger btn-block"
-        )
-      )
+        )  # end tabsetPanel
+      )  # end tagList
     })
+
+
 
     # -- Keep palette dropdown in sync with continuous/categorical ------
     shiny::observeEvent(input$is_cont, {
@@ -1370,6 +1428,63 @@ run_app <- function() {
           width             = 14,
           height            = 8,
           dpi               = 300
+        )
+      }
+    )
+
+    # -- Download descriptive taxa summary (.xlsx) ----------------------
+    output$dl_desc <- shiny::downloadHandler(
+      filename = function() {
+        grp <- if (length(input$desc_group_cols) > 0)
+          paste(gsub("[^A-Za-z0-9]", "_", input$desc_group_cols),
+                collapse = "_") else "groups"
+        sprintf("taxa_summary_by_%s_%s.xlsx", grp,
+                format(Sys.Date(), "%Y%m%d"))
+      },
+      content = function(file) {
+        shiny::req(rv$obj, rv$meta_enriched)
+        cfg <- rv$obj$config
+
+        if (length(input$desc_group_cols) == 0) {
+          shiny::showNotification(
+            "Choose at least one 'Group by' column first.",
+            type = "error"
+          )
+          shiny::req(FALSE)
+        }
+        if (length(input$desc_levels) == 0) {
+          shiny::showNotification(
+            "Choose at least one taxonomic level first.",
+            type = "error"
+          )
+          shiny::req(FALSE)
+        }
+
+        sort_cols <- if (length(input$desc_sort_cols) > 0)
+          input$desc_sort_cols else input$desc_group_cols
+
+        tryCatch(
+          shiny::withProgress(
+            message = "Building descriptive summary...", value = 0.5, {
+              export_taxa_descriptive_workbook(
+                otu              = rv$obj$otu_path,
+                meta             = rv$meta_enriched,
+                group_columns    = input$desc_group_cols,
+                outfile          = file,
+                sort_columns     = sort_cols,
+                tax_levels       = input$desc_levels,
+                exclude_baseline = isTRUE(input$desc_exclude_baseline),
+                is_baseline_col  = cfg$is_baseline_col
+              )
+            }
+          ),
+          error = function(e) {
+            shiny::showNotification(
+              paste("Descriptive summary failed:", e$message),
+              type = "error", duration = NULL
+            )
+            shiny::req(FALSE)
+          }
         )
       }
     )
