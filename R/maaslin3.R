@@ -1,182 +1,138 @@
-# maaslin.R
-# ─────────────────────────────────────────────────────────────────────────────
-# MaAsLin3 wrapper functions for the Microbiome Explorer Shiny app.
-# ─────────────────────────────────────────────────────────────────────────────
+# maaslin3.R
+# -----------------------------------------------------------------------------
+# MaAsLin3 wrappers for the Microbiome Explorer app.
+# -----------------------------------------------------------------------------
 
-# ── 1. validate_maaslin_formula() ────────────────────────────────────────────
+#' Check a MaAsLin3 fixed-effects formula against the metadata
+#'
+#' @param formula_str Fixed effects without a leading \code{~}, e.g.
+#'   \code{"Treatment + Timepoint"}.
+#' @param meta Metadata data frame.
+#' @return Invisibly \code{TRUE}; stops with a readable message otherwise.
 #' @export
 validate_maaslin_formula <- function(formula_str, meta) {
-  if (is.null(formula_str) || !nzchar(trimws(formula_str)))
-    stop("Formula is empty. Please enter at least one fixed effect.",
-         call. = FALSE)
-  fml <- tryCatch(
-    stats::as.formula(paste("~", formula_str)),
-    error = function(e)
-      stop("Cannot parse formula '", formula_str, "':\n  ", e$message,
-           call. = FALSE)
-  )
-  term_labels <- attr(stats::terms(fml), "term.labels")
-  simple_terms <- term_labels[!grepl("[:*^]", term_labels)]
-  simple_terms <- gsub("^I\\((.+)\\)$", "\\1", simple_terms)
-  missing_cols <- setdiff(simple_terms, colnames(meta))
-  if (length(missing_cols) > 0)
-    stop(sprintf(
-      "Formula term(s) not found in metadata: %s\nAvailable columns: %s",
-      paste(missing_cols, collapse = ", "),
-      paste(colnames(meta), collapse = ", ")
-    ), call. = FALSE)
+  .parse_fixed_formula(formula_str, meta)
   invisible(TRUE)
 }
 
-# ── 2. prepare_maaslin_input() ───────────────────────────────────────────────
+#' Prepare feature and metadata tables for MaAsLin3
+#'
+#' Collapses the OTU table to \code{level} (QIIME 2 or MetaPhlAn lineages),
+#' converts to relative abundance (\%), drops baseline samples and aligns the
+#' metadata. Taxa not resolved down to \code{level} are kept as
+#' \code{"<deepest known rank>_unclassified"} features. A table with taxon
+#' names only (no lineage) is used as uploaded with \code{level = "Species"}.
+#'
+#' @param otu_path Path to the OTU/species table (.tsv, taxa as rows).
+#' @param meta_enriched Metadata data frame (Sample IDs as row names).
+#' @param level One of \code{TAXA_LEVELS}, or \code{NULL} to keep rows as-is.
+#' @param config A \code{pcoa_config()} object.
+#' @param min_prevalence,min_abundance Kept for API compatibility; filtering
+#'   happens inside \code{run_maaslin()}.
+#' @return A list: \code{features} (samples x taxa, \%), \code{metadata},
+#'   \code{otu_scale_info}.
 #' @export
-prepare_maaslin_input <- function(otu_path,
-                                  meta_enriched,
-                                  level           = "Species",
-                                  config          = pcoa_config(),
-                                  min_prevalence  = 0.1,
-                                  min_abundance   = 0) {
-  base_col <- config$is_baseline_col
-
-  otu_raw <- read.table(
-    otu_path,
-    sep = "\t", header = TRUE, row.names = 1,
-    check.names = FALSE, quote = "", fill = TRUE
-  )
-  colnames(otu_raw) <- gsub("_metaphlan$", "", colnames(otu_raw))
-
-  meta_use <- meta_enriched
-  if (base_col %in% colnames(meta_use)) {
-    meta_use <- meta_use[
-      !is.na(meta_use[[base_col]]) & meta_use[[base_col]] == FALSE,
-      , drop = FALSE
-    ]
-  }
-
-  shared <- intersect(colnames(otu_raw), rownames(meta_use))
-  if (length(shared) == 0)
-    stop("No overlapping Sample IDs between OTU table and metadata.",
-         call. = FALSE)
-
-  otu_use  <- otu_raw[, shared, drop = FALSE]
-  meta_use <- meta_use[shared, , drop = FALSE]
-
-  # ── Collapse taxonomy ─────────────────────────────────────────
-  # Build the feature name from the FULL resolved lineage up to and
-  # including the target rank (e.g. "Firmicutes_Clostridia_
-  # Lachnospiraceae_Blautia_wexlerae"), rather than keying off the single
-  # tag at that rank. This keeps every feature distinct - two species
-  # sharing an epithet from different genera no longer collapse into one
-  # shared feature when aggregate() sums by taxon, and a clade with no tag
-  # at the target rank is dropped only if NO ancestor rank is resolved.
-  .extract_level_local <- function(clade, pfx) {
-    parts <- trimws(unlist(strsplit(as.character(clade), ";")))
-    .rank_val <- function(p) {
-      tgt <- parts[grep(paste0("^", p, "__"), parts)]
-      if (length(tgt) == 0) return(NA_character_)
-      v <- sub(paste0(p, "__"), "", tgt[1])
-      if (v == "" || v == "_") NA_character_ else v
-    }
-    rank_order <- unname(TAXA_PREFIXES)
-    target_i   <- match(pfx, rank_order)
-    if (is.na(target_i))
-      stop(sprintf("Prefix '%s' not found in TAXA_PREFIXES.", pfx),
-           call. = FALSE)
-    ranks_upto <- rank_order[seq_len(target_i)]
-    vals <- vapply(ranks_upto, .rank_val, character(1))
-    vals <- vals[!is.na(vals)]
-    if (length(vals) == 0) return(NA_character_)
-    paste(vals, collapse = "_")
-  }
+prepare_maaslin_input <- function(otu_path, meta_enriched, level = "Species",
+                                  config = pcoa_config(),
+                                  min_prevalence = 0.1, min_abundance = 0) {
+  mat  <- .harmonise_samples(.read_otu_table(otu_path), rownames(meta_enriched))
+  meta <- meta_enriched[!.is_baseline(meta_enriched, config$is_baseline_col), , drop = FALSE]
+  ids  <- intersect(colnames(mat), rownames(meta))
+  if (!length(ids))
+    stop("No overlapping Sample IDs between OTU table and metadata.", call. = FALSE)
+  mat <- mat[, ids, drop = FALSE]
 
   if (!is.null(level)) {
-    prefix <- TAXA_PREFIXES[[level]]
-    if (is.null(prefix))
-      stop(sprintf(
-        "Unknown taxonomic level '%s'. Known levels: %s",
-        level, paste(names(TAXA_PREFIXES), collapse = ", ")
-      ), call. = FALSE)
-
-    # Applies to EVERY level including Species - full lineage up to target
-    taxa_labels <- vapply(rownames(otu_use), .extract_level_local,
-                          FUN.VALUE = character(1), pfx = prefix)
-    keep        <- !is.na(taxa_labels)
-    otu_use     <- otu_use[keep, , drop = FALSE]
-    taxa_labels <- taxa_labels[keep]
-
-    otu_df  <- data.frame(taxon = taxa_labels, otu_use, check.names = FALSE)
-    otu_agg <- stats::aggregate(. ~ taxon, data = otu_df, FUN = sum)
-    rownames(otu_agg) <- otu_agg$taxon
-    otu_agg$taxon     <- NULL
-    features <- as.data.frame(t(otu_agg), check.names = FALSE)
-  } else {
-    # No level specified: keep original row names as-is
-    features <- as.data.frame(t(otu_use), check.names = FALSE)
+    if (!level %in% names(TAXA_PREFIXES))
+      stop(sprintf("Unknown taxonomic level '%s'. Choose from: %s", level,
+                   paste(names(TAXA_PREFIXES), collapse = ", ")), call. = FALSE)
+    mat <- .collapse_to_level(mat, level)
   }
 
-  # ── Convert to relative abundance (%) ──────────────────────────
-  # Ensures MaAsLin3 always receives percent abundance regardless of
-  # whether the uploaded OTU table was raw counts or already percent -
-  # detects and converts raw counts automatically (.to_relative_abundance()
-  # in data.R, samples-as-rows / taxa-as-columns, matching `features`
-  # here); already-percent samples are left untouched. Applied BEFORE
-  # MaAsLin3's own `normalization` option runs, so the behavior is
-  # consistent regardless of what normalization the user selects in the
-  # UI (e.g. still correct even if they pick "NONE").
-  features_mat <- .to_relative_abundance(as.matrix(features))
-  # as.data.frame() below drops custom attributes, so capture the
-  # detection result now and return it separately for app.R to display.
-  otu_scale_info <- attr(features_mat, "scale_info")
-  features <- as.data.frame(features_mat, check.names = FALSE)
+  # % per sample is computed over ALL taxa. Taxa not resolved down to `level`
+  # stay in as "<deepest known rank>_unclassified" features; only rows with no
+  # taxonomy at all ("Unclassified") are left out of the feature list.
+  features <- .to_relative_abundance(t(mat))
+  scale_info <- attr(features, "scale_info")
+  features <- features[, colnames(features) != "Unclassified", drop = FALSE]
+  features <- features[, colSums(features) > 0, drop = FALSE]   # absent in this subset
+  if (!is.null(level) && .has_lineage(colnames(features))) {
+    # readable, unique names: "Blautia"; clashes get the parent rank,
+    # e.g. "Blautia.uncultured_bacterium"
+    toks <- lapply(strsplit(colnames(features), "[;|]"),
+                   function(t) sub("^[A-Za-z]__", "", t))
+    nm <- vapply(toks, function(t) t[length(t)], character(1))
+    for (k in c(2, 99)) {                    # lengthen only the names that clash
+      dup <- nm %in% nm[duplicated(nm)]
+      nm[dup] <- vapply(toks[dup], function(t) paste(utils::tail(t, k), collapse = "."),
+                        character(1))
+    }
+    colnames(features) <- nm
+  }
+  if (!ncol(features))
+    stop("No taxa left to test at ", level, " level.", call. = FALSE)
+  features <- as.data.frame(features, check.names = FALSE)
+  meta     <- meta[rownames(features), , drop = FALSE]
 
-  common   <- intersect(rownames(features), rownames(meta_use))
-  features <- features[common, , drop = FALSE]
-  meta_use <- meta_use[common, , drop = FALSE]
-
-  # ── Sanity checks (INSIDE the function now) ───────────────────
-  dup_cols <- colnames(meta_use)[duplicated(colnames(meta_use))]
-  if (length(dup_cols) > 0)
-    stop("Duplicate metadata column names detected: ",
-         paste(unique(dup_cols), collapse = ", "), call. = FALSE)
-
-  bad_cols <- names(meta_use)[
-    !vapply(meta_use,
-            function(x) is.atomic(x) || is.factor(x),
-            logical(1))
-  ]
-  if (length(bad_cols) > 0)
-    stop("Metadata columns are not plain vectors: ",
-         paste(bad_cols, collapse = ", "), call. = FALSE)
-
-  char_cols <- vapply(meta_use, is.character, logical(1))
-  meta_use[char_cols] <- lapply(meta_use[char_cols], factor)
-
-  single_lvl <- vapply(meta_use, function(x) {
-    is.factor(x) && nlevels(droplevels(x)) < 2
-  }, logical(1))
-  if (any(single_lvl)) {
+  if (anyDuplicated(colnames(meta)))
+    stop("Duplicate metadata column names: ",
+         paste(unique(colnames(meta)[duplicated(colnames(meta))]), collapse = ", "),
+         call. = FALSE)
+  chr <- vapply(meta, is.character, logical(1))
+  meta[chr] <- lapply(meta[chr], factor)
+  single <- vapply(meta, function(x) is.factor(x) && nlevels(droplevels(x)) < 2, logical(1))
+  if (any(single)) {
     message("Dropping single-level metadata columns: ",
-            paste(names(meta_use)[single_lvl], collapse = ", "))
-    meta_use <- meta_use[, !single_lvl, drop = FALSE]
+            paste(names(meta)[single], collapse = ", "))
+    meta <- meta[, !single, drop = FALSE]
   }
-
-  # ── Diagnostic dump — very useful for debugging ───────────────
-  message("prepare_maaslin_input() finished: ",
-          nrow(features), " samples × ", ncol(features), " taxa; ",
-          "metadata cols: ",
-          paste(colnames(meta_use), collapse = ", "))
-
-  list(features = features, metadata = meta_use, otu_scale_info = otu_scale_info)
+  message(sprintf("prepare_maaslin_input(): %d samples x %d taxa.",
+                  nrow(features), ncol(features)))
+  list(features = features, metadata = meta, otu_scale_info = scale_info)
 }
 
-# ── 3. run_maaslin() ─────────────────────────────────────────────────────────
+# MaAsLin3 before 1.5.5 - including the Bioconductor 1.4.x release - stops with
+# "supplied row-names must match list extent" when given more than one random
+# effect. Fixed upstream in 1.5.5 ("Fix random effects handling for multiple
+# crossed random intercepts", Aug 2026). One random effect works in all versions.
+.MAASLIN_MULTI_RANEF <- "1.5.5"
+.maaslin_multi_ranef_ok <- function()
+  requireNamespace("maaslin3", quietly = TRUE) &&
+    utils::packageVersion("maaslin3") >= .MAASLIN_MULTI_RANEF
+.maaslin_multi_ranef_msg <- function() sprintf(paste0(
+  "Your MaAsLin3 (version %s) can use only one random effect: versions before %s ",
+  "stop with an error when given more. Choose one random effect, or update ",
+  "MaAsLin3 with devtools::install_github(\"biobakery/maaslin3\") and restart R."),
+  utils::packageVersion("maaslin3"), .MAASLIN_MULTI_RANEF)
+
+#' Run MaAsLin3
+#'
+#' @param features Samples x features data frame from
+#'   \code{prepare_maaslin_input()}.
+#' @param metadata Metadata data frame aligned to \code{features}.
+#' @param formula_str Fixed effects without \code{~}.
+#' @param group_effects_var Optional column added as an ANOVA-style
+#'   \code{group()} term.
+#' @param random_effect Optional column(s); each becomes its own random
+#'   intercept, e.g. \code{c("CatID", "Litter")} gives
+#'   \code{(1|CatID) + (1|Litter)}. More than one needs MaAsLin3 1.5.5 or
+#'   later; older versions get a clear error before anything is fitted.
+#' @param use_random Logical; include \code{random_effect}?
+#' @param reference Optional named vector/list giving the reference (control)
+#'   group of categorical variables, e.g. \code{c(GROUP = "HEALTHY")}. Every
+#'   other group is compared with it. Default: the alphabetically first level.
+#' @param small_random_effects Passed to MaAsLin3.
+#' @param normalization,transform,min_prevalence,min_abundance,max_significance
+#'   Passed to \code{maaslin3::maaslin3()}. \code{min_abundance} is in percent.
+#' @param padj_method Multiple-testing correction (\code{correction}).
+#' @return Results data frame sorted by q-value, with attributes
+#'   \code{"formula_used"} and \code{"reference_used"}.
 #' @export
-run_maaslin <- function(features,
-                        metadata,
-                        formula_str,
+run_maaslin <- function(features, metadata, formula_str,
                         group_effects_var    = NULL,
                         random_effect        = NULL,
                         use_random           = FALSE,
+                        reference            = NULL,
                         small_random_effects = FALSE,
                         normalization        = "TSS",
                         transform            = "LOG",
@@ -184,221 +140,130 @@ run_maaslin <- function(features,
                         min_abundance        = 0,
                         padj_method          = "BH",
                         max_significance     = 0.25) {
-
   if (!requireNamespace("maaslin3", quietly = TRUE))
-    stop("Package 'maaslin3' is required.", call. = FALSE)
-
-  if (is.null(formula_str) || !nzchar(trimws(formula_str)))
-    stop("Formula is empty.", call. = FALSE)
-
-  group_var <- if (!is.null(group_effects_var) &&
-                   nzchar(trimws(group_effects_var)))
-    trimws(group_effects_var) else NULL
-  rand_effect <- if (isTRUE(use_random) &&
-                     !is.null(random_effect) &&
-                     nzchar(trimws(random_effect)))
-    trimws(random_effect) else NULL
-
-  if (!is.null(group_var) && !group_var %in% colnames(metadata))
-    stop(sprintf("Grouping factor '%s' not found in metadata.", group_var),
-         call. = FALSE)
-  if (!is.null(rand_effect) && !rand_effect %in% colnames(metadata))
-    stop(sprintf("Random effect column '%s' not found in metadata.",
-                 rand_effect), call. = FALSE)
-  if (!is.null(group_var) && !is.null(rand_effect) &&
-      identical(group_var, rand_effect))
-    stop("Grouping factor and random effect cannot be the same column.",
+    stop("Package 'maaslin3' is required: devtools::install_github('biobakery/maaslin3')",
          call. = FALSE)
 
-  fixed_fml <- tryCatch(
-    stats::as.formula(paste("~", formula_str)),
-    error = function(e) NULL
-  )
-  fixed_term_labels <- if (is.null(fixed_fml)) character(0)
-  else attr(stats::terms(fixed_fml), "term.labels")
-  # Underlying VARIABLES (not term labels) - all.vars() correctly pulls
-  # out e.g. Treatment and Timepoint from "Treatment:Timepoint" and never
-  # returns the interaction label itself, so column existence checks and
-  # metadata subsetting below don't look for a non-existent
-  # "Treatment:Timepoint" column.
-  fixed_vars <- if (is.null(fixed_fml)) character(0)
-  else all.vars(fixed_fml)      # base::all.vars, NOT stats::
+  nz <- function(x) { x <- trimws(x[!is.na(x)]); x <- unique(x[nzchar(x)]); if (length(x)) x }
+  group_var   <- nz(group_effects_var)[1]
+  rand_effect <- if (isTRUE(use_random)) nz(random_effect)
+  if (isTRUE(use_random) && is.null(rand_effect))
+    stop("'Include random effect' is ticked but no random effect column is chosen.",
+         call. = FALSE)
 
-  if (!is.null(group_var) && group_var %in% fixed_term_labels)
-    stop(sprintf("'%s' used as grouping factor is also in formula.",
-                 group_var), call. = FALSE)
-  if (!is.null(rand_effect) && rand_effect %in% fixed_term_labels)
-    stop(sprintf("'%s' used as random effect is also in formula.",
-                 rand_effect), call. = FALSE)
-
-  # ── Trim metadata to only columns we need (INSIDE now) ────────
-  needed <- unique(c(
-    fixed_vars,                    # <-- was fixed_term_labels
-    if (!is.null(group_var))   group_var   else character(),
-    if (!is.null(rand_effect)) rand_effect else character()
-  ))
-  missing_needed <- setdiff(needed, colnames(metadata))
-  if (length(missing_needed))
-    stop("Metadata missing columns: ",
-         paste(missing_needed, collapse = ", "), call. = FALSE)
-  metadata <- metadata[, needed, drop = FALSE]
-
-  complete_rows <- stats::complete.cases(metadata)
-  if (any(!complete_rows)) {
-    message(sprintf("Dropping %d samples with NA in modeling columns.",
-                    sum(!complete_rows)))
-    metadata <- metadata[complete_rows, , drop = FALSE]
-    features <- features[rownames(metadata), , drop = FALSE]
+  parsed <- .parse_fixed_formula(formula_str, metadata)
+  for (x in c(group_var, rand_effect)) {
+    if (!x %in% colnames(metadata))
+      stop(sprintf("Column '%s' not found in metadata.", x), call. = FALSE)
+    if (x %in% parsed$vars_used)
+      stop(sprintf("'%s' is already in the formula; it can't also be a group/random effect.", x),
+           call. = FALSE)
   }
+  if (!is.null(group_var) && group_var %in% rand_effect)
+    stop("Grouping factor and random effect cannot be the same column.", call. = FALSE)
+  if (length(rand_effect) > 1 && !.maaslin_multi_ranef_ok())
+    stop(.maaslin_multi_ranef_msg(), call. = FALSE)
 
-  # Force character → factor once more, and drop unused levels.
-  # (Trimming above may have re-introduced character columns if the
-  # source was a tibble, and subsetting rows may leave unused levels.)
-  for (nm in colnames(metadata)) {
-    x <- metadata[[nm]]
+  metadata <- as.data.frame(metadata[, unique(c(parsed$vars_used, group_var, rand_effect)),
+                                     drop = FALSE])
+  metadata <- metadata[stats::complete.cases(metadata), , drop = FALSE]
+  metadata[] <- lapply(metadata, function(x) {
     if (is.character(x)) x <- factor(x)
-    if (is.factor(x))    x <- droplevels(x)
-    metadata[[nm]] <- x
+    if (is.factor(x)) droplevels(x) else x
+  })
+  for (v in intersect(names(reference), colnames(metadata))) {
+    ref <- as.character(reference[[v]])
+    if (is.factor(metadata[[v]]) && length(ref) == 1 && ref %in% levels(metadata[[v]]))
+      metadata[[v]] <- stats::relevel(metadata[[v]], ref = ref)
+    else if (is.factor(metadata[[v]]))
+      warning(sprintf("Reference '%s' is not a level of '%s' (after filtering); using '%s'.",
+                      ref, v, levels(metadata[[v]])[1]), call. = FALSE)
+  }
+  ref_used <- vapply(Filter(is.factor, metadata[setdiff(colnames(metadata), rand_effect)]),
+                     function(x) levels(x)[1], character(1))
+  bad <- vapply(metadata, function(x) is.factor(x) && nlevels(x) < 2, logical(1))
+  if (any(bad))
+    stop("After removing missing values these columns have <2 levels: ",
+         paste(names(metadata)[bad], collapse = ", "), call. = FALSE)
+  for (re in rand_effect) {
+    n_lv <- length(unique(metadata[[re]]))
+    if (n_lv >= nrow(metadata))
+      stop(sprintf(paste0("Random effect '%s' has a separate group for every sample - it ",
+                          "needs repeated samples per group."), re), call. = FALSE)
   }
 
-  # Re-check: any factor with < 2 levels after row drops is fatal
-  bad_lvl <- vapply(metadata, function(x) {
-    is.factor(x) && nlevels(x) < 2
-  }, logical(1))
-  if (any(bad_lvl))
-    stop("After NA filtering these factor columns have <2 levels: ",
-         paste(names(metadata)[bad_lvl], collapse = ", "),
-         ". Adjust your formula or filters.", call. = FALSE)
-
-  # Coerce to plain base data.frame (not tibble / data.table).
-  # This is the single most common fix for the generic
-  # "argument 1 is not a vector" error inside MaAsLin3, because
-  # MaAsLin3 uses base-R subsetting internally and tibble's
-  # [.tbl_df returns a 1-column tibble instead of a vector.
-  metadata <- as.data.frame(metadata, stringsAsFactors = FALSE)
-  features <- as.data.frame(features, stringsAsFactors = FALSE,
-                            check.names = FALSE)
-  rownames(metadata) <- rownames(metadata)   # keep row names intact
-  rownames(features) <- rownames(features)
-
-  # Align order once more
   common <- intersect(rownames(features), rownames(metadata))
   if (length(common) < 3)
-    stop("Fewer than 3 samples remain after alignment/NA filtering.",
-         call. = FALSE)
-  features <- features[common, , drop = FALSE]
+    stop("Fewer than 3 samples remain after alignment/NA filtering.", call. = FALSE)
+  features <- as.data.frame(features[common, , drop = FALSE], check.names = FALSE)
   metadata <- metadata[common, , drop = FALSE]
 
-  # ── Build unified lme4-style formula ──────────────────────────
   rhs <- trimws(formula_str)
-  if (!is.null(group_var))
-    rhs <- paste0(rhs, " + group(", group_var, ")")
+  if (!is.null(group_var))   rhs <- paste0(rhs, " + group(", group_var, ")")
   if (!is.null(rand_effect))
-    rhs <- paste0(rhs, " + (1|", rand_effect, ")")
+    rhs <- paste0(rhs, " + ", paste0("(1|", rand_effect, ")", collapse = " + "))
   full_formula <- paste("~", rhs)
+  message("MaAsLin3: ", full_formula, " | ", nrow(features), " samples x ",
+          ncol(features), " features")
 
-  # ── Diagnostic dump right before calling MaAsLin3 ─────────────
-  message("── MaAsLin3 pre-flight ──")
-  message("  formula:    ", full_formula)
-  message("  n_samples:  ", nrow(features))
-  message("  n_features: ", ncol(features))
-  message("  metadata columns and types:")
-  for (nm in colnames(metadata)) {
-    x <- metadata[[nm]]
-    message(sprintf("    %-25s %s (%s)",
-                    nm,
-                    class(x)[1],
-                    if (is.factor(x))
-                      paste(levels(x), collapse = "/")
-                    else
-                      paste(range(x, na.rm = TRUE), collapse = "..")))
-  }
-
-  # ── Temp output dir ───────────────────────────────────────────
   out_dir <- tempfile("maaslin3_")
   dir.create(out_dir, recursive = TRUE)
-  on.exit(
-    tryCatch(unlink(out_dir, recursive = TRUE),
-             error = function(e) NULL),
-    add = TRUE
-  )
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
 
-  # ── Run MaAsLin3 ──────────────────────────────────────────────
-  fit <- maaslin3::maaslin3(
-    input_data           = features,
-    input_metadata       = metadata,
-    output               = out_dir,
-    formula              = full_formula,
-    small_random_effects = small_random_effects,
-    normalization        = normalization,
-    transform            = transform,
-    min_prevalence       = min_prevalence,
-    min_abundance        = min_abundance,
-    max_significance     = max_significance,
-    correction           = padj_method,
-    plot_summary_plot    = FALSE,
-    plot_associations    = FALSE,
-    save_models          = FALSE
-  )
+  maaslin3::maaslin3(
+    input_data = features, input_metadata = metadata, output = out_dir,
+    formula = full_formula, small_random_effects = small_random_effects,
+    normalization = normalization, transform = transform,
+    min_prevalence = min_prevalence, min_abundance = min_abundance,
+    max_significance = max_significance, correction = padj_method,
+    plot_summary_plot = FALSE, plot_associations = FALSE, save_models = FALSE)
 
-  # ── Read results file ─────────────────────────────────────────
   res_path <- file.path(out_dir, "all_results.tsv")
-  if (!file.exists(res_path))
-    stop("MaAsLin3 produced no results file.", call. = FALSE)
-  res <- read.table(res_path, sep = "\t", header = TRUE,
-                    stringsAsFactors = FALSE)
-  if (nrow(res) == 0)
-    stop("MaAsLin3 returned an empty results table.", call. = FALSE)
+  if (!file.exists(res_path)) stop("MaAsLin3 produced no results file.", call. = FALSE)
+  res <- utils::read.delim(res_path, stringsAsFactors = FALSE, check.names = FALSE,
+                           comment.char = "")   # MaAsLin3 quotes its fields
+  if (!nrow(res)) stop("MaAsLin3 returned an empty results table.", call. = FALSE)
 
   res <- .standardise_maaslin_cols(res)
   res <- res[order(res$qval, res$pval, na.last = TRUE), , drop = FALSE]
   rownames(res) <- NULL
   attr(res, "formula_used") <- full_formula
+  attr(res, "reference_used") <- ref_used
   res
 }
 
-# ── Internal: standardise column names ───────────────────────────────────────
+# -- Internal: harmonise result column names across MaAsLin versions ----------
 .standardise_maaslin_cols <- function(df) {
   rename_map <- list(
     feature  = c("feature", "Feature", "taxon", "Taxon"),
     metadata = c("metadata", "Metadata", "variable", "Variable"),
     value    = c("value", "Value", "level", "Level"),
-    coef     = c("coef", "Coef", "coefficient", "Coefficient",
-                 "estimate", "Estimate"),
+    coef     = c("coef", "Coef", "coefficient", "Coefficient", "estimate", "Estimate"),
     stderr   = c("stderr", "StdErr", "se", "SE"),
-    pval     = c("pval", "pval_individual", "pValue", "p.value",
-                 "P.value", "p_value"),
-    qval     = c("qval", "qval_individual", "qValue", "q.value",
-                 "Q.value", "q_value", "padj", "p_adjusted")
-  )
-  current <- colnames(df)
-  for (new_name in names(rename_map)) {
-    if (new_name %in% current) next
-    for (old_name in rename_map[[new_name]]) {
-      if (old_name %in% current) {
-        colnames(df)[colnames(df) == old_name] <- new_name
-        break
-      }
-    }
-  }
-  for (col in names(rename_map)) {
-    if (!col %in% colnames(df)) df[[col]] <- NA
+    pval     = c("pval", "pval_individual", "pValue", "p.value", "P.value", "p_value"),
+    qval     = c("qval", "qval_individual", "qValue", "q.value", "Q.value",
+                 "q_value", "padj", "p_adjusted"))
+  for (new in names(rename_map)) {
+    if (new %in% colnames(df)) next
+    old <- intersect(rename_map[[new]], colnames(df))[1]
+    if (!is.na(old)) colnames(df)[colnames(df) == old] <- new else df[[new]] <- NA
   }
   df
 }
 
-# ── 4. summarise_maaslin_results() ───────────────────────────────────────────
+#' Significant MaAsLin3 results
+#'
+#' @param results Data frame from \code{run_maaslin()}.
+#' @param threshold q-value cut-off.
+#' @return Rows with \code{qval < threshold}, or a one-row message.
 #' @export
 summarise_maaslin_results <- function(results, threshold = 0.25) {
-  if (is.null(results) || nrow(results) == 0)
+  if (is.null(results) || !nrow(results))
     return(data.frame(message = "No results available."))
-  sig <- results[!is.na(results$qval) & results$qval < threshold, ,
-                 drop = FALSE]
-  if (nrow(sig) == 0)
-    return(data.frame(message = sprintf(
-      "No features significant at FDR < %.2f.", threshold
-    )))
-  num_cols <- intersect(c("coef", "stderr", "pval", "qval"), colnames(sig))
-  sig[num_cols] <- lapply(sig[num_cols], function(x) round(x, 6))
-  sig[order(sig$qval, sig$pval, na.last = TRUE), , drop = FALSE]
+  sig <- results[!is.na(results$qval) & results$qval < threshold, , drop = FALSE]
+  if (!nrow(sig))
+    return(data.frame(message = sprintf("No features significant at q < %.2f.", threshold)))
+  num <- intersect(c("coef", "stderr", "pval", "qval"), colnames(sig))
+  sig[num] <- lapply(sig[num], round, 6)
+  sig
 }

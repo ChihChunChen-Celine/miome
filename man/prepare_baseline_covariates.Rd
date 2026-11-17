@@ -13,28 +13,25 @@ prepare_baseline_covariates(
 )
 }
 \arguments{
-\item{otu_path}{Path to OTU table (.tsv).}
+\item{otu_path}{Path to OTU/species table (.tsv, taxa as rows, samples as
+columns). QIIME 2, MetaPhlAn and plain tables are accepted.}
 
-\item{meta_path}{Path to mapping file (.csv). Should already contain
-alpha diversity columns if called after \code{compute_alpha_diversity()}.}
+\item{meta_path}{Path to mapping file (.csv, first column = Sample ID), or a
+data frame with Sample IDs as row names.}
 
-\item{dist_method}{Distance method for baseline PCoA (default \code{"bray"}).}
+\item{dist_method}{Distance method for the baseline PCoA.}
 
-\item{config}{A \code{pcoa_config()} object. Used for
-\code{subject_id_col} and \code{is_baseline_col}.}
+\item{config}{A \code{pcoa_config()} object.}
 
-\item{precomputed_dist_path}{Optional path to a precomputed distance
-matrix (.qza or .tsv) - required when \code{dist_method} is a UniFrac
-variant.}
+\item{precomputed_dist_path}{Optional precomputed distance matrix (.qza or
+.tsv); required for UniFrac.}
 }
 \value{
-A data frame with the same rows as the input metadata plus
-  columns: \code{Baseline_Shannon}, \code{Baseline_Observed},
-  \code{Baseline_PC1}, \code{Baseline_PC2}.
+Metadata data frame with the covariate columns added.
 }
 \description{
-Calculates per-subject baseline alpha diversity (Shannon, Observed)
-and baseline PCoA coordinates (PC1, PC2), then merges them as numeric
-covariates onto post-baseline rows only.
-Baseline rows are returned with NA in the covariate columns.
+For every alpha metric adds \code{Baseline_<metric>} (e.g.
+\code{Baseline_Shannon}, \code{Baseline_Observed_taxa}) and the subject's
+baseline PCoA coordinates (\code{Baseline_PC1}, \code{Baseline_PC2}) to its
+post-baseline rows. Baseline rows get \code{NA}.
 }

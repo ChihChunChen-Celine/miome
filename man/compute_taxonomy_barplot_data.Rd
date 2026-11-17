@@ -2,39 +2,43 @@
 % Please edit documentation in R/data.r
 \name{compute_taxonomy_barplot_data}
 \alias{compute_taxonomy_barplot_data}
-\title{Parse clade names and collapse to a chosen taxonomic level}
+\title{Collapse the OTU table to one taxonomic level for a stacked bar plot}
 \usage{
 compute_taxonomy_barplot_data(
   otu_path,
   meta_path,
   level = "Family",
-  group_var,
+  group_var = NULL,
   top_n = TAXA_DEFAULT_TOP_N,
   config = pcoa_config()
 )
 }
 \arguments{
-\item{otu_path}{Path to OTU table (.tsv, taxa as rows, samples as cols).}
+\item{otu_path}{Path to OTU/species table (.tsv, taxa as rows, samples as
+columns). QIIME 2, MetaPhlAn and plain tables are accepted.}
 
-\item{meta_path}{Path to mapping file (.csv, first column = Sample ID).}
+\item{meta_path}{Path to mapping file (.csv, first column = Sample ID), or a
+data frame with Sample IDs as row names.}
 
 \item{level}{One of \code{TAXA_LEVELS} (e.g. \code{"Family"}).}
 
-\item{group_var}{Metadata column to facet by (e.g. \code{"Treatment"}).}
+\item{group_var}{Metadata column used for faceting (kept for API
+compatibility; faceting happens in \code{build_taxon_barplot()}).}
 
-\item{top_n}{Number of top taxa to show individually; the rest are
-collapsed into \code{"Others"} (default \code{TAXA_DEFAULT_TOP_N}).}
+\item{top_n}{Number of taxa shown individually; the rest become
+\code{"Others"}.}
 
 \item{config}{A \code{pcoa_config()} object.}
 }
 \value{
-A data frame with columns:
-  \code{SampleID}, \code{Taxon}, \code{RelAbundance},
-  plus all metadata columns.
+Long data frame: \code{SampleID}, \code{Taxon},
+  \code{RelAbundance} (\%), plus all metadata columns.
 }
 \description{
-Reads the same OTU/species table already loaded for PCoA (taxa as rows,
-samples as columns).  Clade names must follow MetaPhlAn semicolon
-notation, e.g.:
-  k__Bacteria;p__Firmicutes;c__Bacilli;o__Lactobacillales;...
+Works with QIIME 2 / SILVA (\code{d__...;p__...}) and MetaPhlAn
+(\code{k__...|p__...}) lineages, including MetaPhlAn tables that list every
+rank (each level is then read from its own rows, so nothing is double
+counted). Taxa not resolved down to \code{level} are shown as
+\code{"<deepest known rank>_unclassified"}. A table with taxon names only
+(no lineage) can be shown at \code{level = "Species"}, i.e. as uploaded.
 }

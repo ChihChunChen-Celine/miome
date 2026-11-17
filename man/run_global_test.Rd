@@ -2,7 +2,7 @@
 % Please edit documentation in R/stats.R
 \name{run_global_test}
 \alias{run_global_test}
-\title{Run global PERMANOVA or ANOSIM on a PCoA object}
+\title{Run a global PERMANOVA or ANOSIM on a PCoA object}
 \usage{
 run_global_test(
   obj,
@@ -16,27 +16,36 @@ run_global_test(
 )
 }
 \arguments{
-\item{obj}{A \code{pcoa_obj} from \code{prepare_pcoa()}.}
+\item{obj}{A \code{pcoa_obj} from \code{prepare_all()} / \code{prepare_pcoa()}.}
 
 \item{v}{Primary grouping variable (metadata column).}
 
-\item{method}{Either \code{"permanova"} or \code{"anosim"}.}
+\item{method}{\code{"permanova"} or \code{"anosim"}.}
 
-\item{covariates}{Character vector of covariate column names to add
-before \code{v} in the PERMANOVA formula. Ignored for ANOSIM.}
+\item{covariates}{Covariate columns entered before \code{v} in the
+PERMANOVA model. Ignored for ANOSIM.}
 
-\item{strata}{Metadata column for restricted permutations
-(e.g. \code{"CatID"} for crossover design). \code{NULL} = unrestricted.}
+\item{strata}{Column for restricted permutations (e.g. a subject ID), or
+\code{NULL}.}
 
-\item{permutations}{Number of permutations (default 999).}
+\item{permutations}{Number of permutations.}
 
-\item{exclude_baseline}{Logical; exclude \code{IsBaseline == TRUE} rows.}
+\item{exclude_baseline}{Logical; drop baseline samples first.}
+
+\item{formula_rhs}{Optional full PERMANOVA model, e.g.
+\code{"Treatment * Timepoint"}. When given it replaces
+\code{covariates} + \code{v} and every model term is reported.}
 }
 \value{
-A data frame with the global test result.
+A data frame with one row per fitted model term (covariates first,
+  in model order; terms are tested sequentially). \code{Strata} says how
+  the restriction was applied (blocks with one sample stay fixed).
+  \code{Note} flags terms that do not vary within the strata - their
+  p-value is \code{NA} because shuffling within blocks cannot test them -
+  and cases where few distinct permutations exist.
 }
 \description{
-For crossover designs, supply \code{covariates = c("Timepoint",
-"Sequence")} and \code{strata = "CatID"} to restrict permutations
-within individual animals and adjust for period/sequence effects.
+For crossover designs supply \code{covariates = c("Timepoint", "Sequence")}
+and \code{strata = "CatID"} to adjust for period/sequence and restrict
+permutations within subjects.
 }

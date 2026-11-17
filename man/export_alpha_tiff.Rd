@@ -2,7 +2,7 @@
 % Please edit documentation in R/export.r
 \name{export_alpha_tiff}
 \alias{export_alpha_tiff}
-\title{Export an alpha diversity scatter/boxplot as a high-resolution TIFF}
+\title{Export an alpha diversity plot as a TIFF}
 \usage{
 export_alpha_tiff(
   meta_enriched,
@@ -20,55 +20,37 @@ export_alpha_tiff(
 )
 }
 \arguments{
-\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}
-(produced by \code{prepare_all()} in data.R).}
+\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.}
 
-\item{outfile}{Output TIFF file path.}
+\item{outfile}{Output file path.}
 
-\item{cfg}{A \code{pcoa_config()} object (config.R).
-Used for DPI and export dimensions.}
+\item{cfg}{A \code{pcoa_config()} object (size and DPI).}
 
-\item{metric}{Alpha metric column to plot
-(default \code{"Shannon"}).}
+\item{metric}{Alpha diversity column to plot.}
 
-\item{x_var}{X axis grouping column
-(default \code{"Treatment"}).}
+\item{x_var}{Column for x-axis groups.}
 
-\item{color_var}{Point colour column
-(default \code{"Timepoint"}).}
+\item{color_var}{Column for point colour.}
 
-\item{palette}{RColorBrewer categorical palette.}
+\item{palette}{Palette name, or your own colours: a named vector such as
+\code{c(Control = "#1B9E77", MUO = "#D95F02")} fixes the colour of those
+groups (the others keep the Miome palette); for a numeric variable an
+unnamed vector such as \code{c("#2F6FB0", "#F2F2F2", "#B8456B")} is a
+gradient from low to high.}
 
 \item{rev_pal}{Logical; reverse palette?}
 
-\item{connect_by}{Column for within-subject connecting lines.
-Default \code{"CatID"} for crossover design.}
+\item{connect_by}{Optional column for within-subject lines, or \code{NULL}.}
 
-\item{exclude_baseline}{Logical; exclude baseline rows (as flagged
-by \code{is_baseline_col})? Default \code{TRUE}.}
+\item{exclude_baseline}{Logical; drop baseline rows first.}
 
-\item{is_baseline_col}{Metadata column flagging baseline rows
-(default \code{"IsBaseline"}). See \code{\link{pcoa_config}}.}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{facet_var}{Optional column to facet the plot by
-(e.g. \code{"Timepoint"} for separate phase panels).
-\code{NULL} = no faceting (default).}
+\item{facet_var}{Optional column to facet by, or \code{NULL}.}
 }
 \value{
-Invisibly returns \code{outfile}.
+Invisibly, \code{outfile}.
 }
 \description{
-Renders the plot via \code{build_alpha_scatter()} from plots.R.
-Dimensions are controlled by \code{alpha_export_w_in} and
-\code{alpha_export_h_in} in \code{pcoa_config()} (config.R).
-}
-\details{
-Designed for the crossover design:
-\itemize{
-  \item Set \code{connect_by = "CatID"} for within-cat paired lines.
-  \item Set \code{exclude_baseline = TRUE} to remove
-    \code{IsBaseline == TRUE} rows from the plot.
-  \item Set \code{facet_var = "Timepoint"} to show
-    Phase 1 and Phase 2 in separate panels.
-}
+Export an alpha diversity plot as a TIFF
 }

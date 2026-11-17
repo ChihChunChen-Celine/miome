@@ -2,7 +2,7 @@
 % Please edit documentation in R/export.r
 \name{export_2d_tiff}
 \alias{export_2d_tiff}
-\title{Export a 2D PCoA ggplot as a high-resolution TIFF}
+\title{Export a 2D PCoA plot as a TIFF}
 \usage{
 export_2d_tiff(
   obj,
@@ -17,40 +17,30 @@ export_2d_tiff(
 )
 }
 \arguments{
-\item{obj}{A \code{pcoa_obj} from \code{prepare_pcoa()}.}
+\item{obj}{A \code{pcoa_obj} from \code{prepare_all()}.}
 
-\item{v}{Colour variable name (metadata column).}
+\item{v}{Colour variable (metadata column).}
 
-\item{outfile}{Output TIFF file path (provided by
-\code{downloadHandler}).}
+\item{outfile}{Output file path.}
 
-\item{ax_x}{Integer; PC axis for x (default 1).}
+\item{ax_x, ax_y}{PC axes for x and y (1-3).}
 
-\item{ax_y}{Integer; PC axis for y (default 2).}
+\item{palette}{Palette name, or your own colours: a named vector such as
+\code{c(Control = "#1B9E77", MUO = "#D95F02")} fixes the colour of those
+groups (the others keep the Miome palette); for a numeric variable an
+unnamed vector such as \code{c("#2F6FB0", "#F2F2F2", "#B8456B")} is a
+gradient from low to high.}
 
-\item{palette}{RColorBrewer palette name (default \code{"Set2"}).}
-
-\item{is_cont}{Logical; use continuous colour scale?}
+\item{is_cont}{Logical; treat \code{v} as continuous?}
 
 \item{rev_pal}{Logical; reverse the palette?}
 
-\item{connect_by}{Optional metadata column to draw within-subject
-connecting lines (e.g. \code{"CatID"} for crossover design).
-\code{NULL} = no lines (default).}
+\item{connect_by}{Optional column for within-subject lines (categorical
+mode only). Lines follow the configured timepoint column.}
 }
 \value{
-Invisibly returns \code{outfile}.
+Invisibly, \code{outfile}.
 }
 \description{
-Renders the plot via \code{build_2d()} from plots.R and saves it as
-a LZW-compressed TIFF at the resolution specified in
-\code{pcoa_config()} (config.R).
-}
-\details{
-For the crossover design, set \code{connect_by = "CatID"} to
-draw within-subject paired lines between treatment observations.
-
-Output is LZW-compressed TIFF (lossless). Dimensions and DPI
-  are controlled by \code{export_w_in}, \code{export_h_in}, and
-  \code{export_dpi} in \code{pcoa_config()} (config.R).
+Export a 2D PCoA plot as a TIFF
 }

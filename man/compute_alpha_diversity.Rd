@@ -2,23 +2,23 @@
 % Please edit documentation in R/data.r
 \name{compute_alpha_diversity}
 \alias{compute_alpha_diversity}
-\title{Compute alpha diversity metrics and append to metadata}
+\title{Compute alpha diversity metrics and append them to the metadata}
 \usage{
 compute_alpha_diversity(otu_path, meta_path, config = pcoa_config())
 }
 \arguments{
-\item{otu_path}{Path to OTU/species table (.tsv, samples as columns).}
+\item{otu_path}{Path to OTU/species table (.tsv, taxa as rows, samples as
+columns). QIIME 2, MetaPhlAn and plain tables are accepted.}
 
-\item{meta_path}{Path to mapping file (.csv, first column = Sample ID).}
+\item{meta_path}{Path to mapping file (.csv, first column = Sample ID), or a
+data frame with Sample IDs as row names.}
 
-\item{config}{A \code{pcoa_config()} object. Used for
-\code{is_baseline_col} during metadata loading.}
+\item{config}{A \code{pcoa_config()} object.}
 }
 \value{
-A data frame: original metadata + Shannon, Simpson, Pielou,
-  Observed_ASVs, Chao1 columns.
+Metadata data frame with Shannon, Simpson, Observed_taxa, Chao1
+  and Pielou columns added. Chao1 is \code{NA} for non-count data.
 }
 \description{
-Computes Shannon, Simpson, Pielou's J, Observed ASVs, and Chao1 for
-every sample and appends them as new columns to the metadata.
+Compute alpha diversity metrics and append them to the metadata
 }

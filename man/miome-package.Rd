@@ -6,7 +6,7 @@
 \alias{miome-package}
 \title{Miome: Microbiome Explorer}
 \description{
-Interactive Shiny app for PCoA, alpha diversity (LMM), taxonomy bar plots, beta diversity statistics, and MaAsLin3 differential abundance analysis of microbiome data.
+Interactive Shiny app for PCoA, alpha diversity (LMM), taxonomy bar plots, beta diversity statistics, MaAsLin3 differential abundance analysis of microbiome data, and linear (mixed) models and descriptive statistics for targeted measurements such as qPCR and metabolites.
 }
 \author{
 \strong{Maintainer}: Your Name \email{your@email.com}

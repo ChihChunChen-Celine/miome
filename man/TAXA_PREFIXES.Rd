@@ -2,16 +2,13 @@
 % Please edit documentation in R/config.r
 \name{TAXA_PREFIXES}
 \alias{TAXA_PREFIXES}
-\title{Taxonomic levels available for the taxonomy bar plot}
+\title{Taxonomic levels available for taxonomy plots and MaAsLin3}
 \usage{
 TAXA_PREFIXES
 }
 \description{
-Maps a human-readable taxonomic level (shown in the Shiny UI dropdown
-and used as \code{level} in \code{compute_taxonomy_barplot_data()} /
-\code{build_taxon_barplot()}, data.R and plots.R) to the taxonomy
-clade-name prefix used to parse it out of the semicolon-delimited
-lineage string (e.g. \code{"f__Ruminococcaceae"}). Uses the
-QIIME2 / SILVA-style prefix convention typical of 16S rRNA taxonomy
-assignments (\code{d__} for Domain), not MetaPhlAn's \code{k__}.
+Maps a rank name to its lineage prefix letter (e.g. \code{"f"} for
+\code{"f__Ruminococcaceae"}). Lineages may use \code{";"} (QIIME 2 / SILVA)
+or \code{"|"} (MetaPhlAn) separators; MetaPhlAn's \code{k__} is accepted as
+an alias for \code{d__}.
 }

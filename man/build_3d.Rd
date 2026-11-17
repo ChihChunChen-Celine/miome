@@ -14,19 +14,22 @@ build_3d(
 )
 }
 \arguments{
-\item{obj}{A \code{pcoa_obj} from \code{prepare_pcoa()}.}
+\item{obj}{A \code{pcoa_obj} from \code{prepare_all()}.}
 
-\item{v}{Name of the colour variable (metadata column).}
+\item{v}{Colour variable (metadata column).}
 
-\item{palette}{RColorBrewer palette name.}
+\item{palette}{Palette name, or your own colours: a named vector such as
+\code{c(Control = "#1B9E77", MUO = "#D95F02")} fixes the colour of those
+groups (the others keep the Miome palette); for a numeric variable an
+unnamed vector such as \code{c("#2F6FB0", "#F2F2F2", "#B8456B")} is a
+gradient from low to high.}
 
 \item{is_cont}{Logical; treat \code{v} as continuous?}
 
 \item{rev_pal}{Logical; reverse the palette?}
 
-\item{connect_by}{Optional metadata column to draw connecting lines
-between paired samples (e.g. \code{"CatID"} for crossover design).
-Only applies to categorical mode.}
+\item{connect_by}{Optional column for within-subject lines (categorical
+mode only). Lines follow the configured timepoint column.}
 }
 \value{
 A \code{plotly} object.

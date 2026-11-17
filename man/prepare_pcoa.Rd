@@ -2,7 +2,7 @@
 % Please edit documentation in R/data.r
 \name{prepare_pcoa}
 \alias{prepare_pcoa}
-\title{Load OTU/species table and metadata, compute PCoA}
+\title{Load OTU table and metadata and compute a PCoA}
 \usage{
 prepare_pcoa(
   otu_path,
@@ -13,29 +13,26 @@ prepare_pcoa(
 )
 }
 \arguments{
-\item{otu_path}{Path to OTU/species table (.tsv, samples as columns).}
+\item{otu_path}{Path to OTU/species table (.tsv, taxa as rows, samples as
+columns). QIIME 2, MetaPhlAn and plain tables are accepted.}
 
-\item{meta_path}{Path to metadata file (.csv, first column = Sample ID).}
+\item{meta_path}{Path to mapping file (.csv, first column = Sample ID), or a
+data frame with Sample IDs as row names.}
 
-\item{config}{A \code{pcoa_config} object from \code{pcoa_config()}.}
+\item{config}{A \code{pcoa_config()} object.}
 
-\item{dist_method}{Distance method passed to \code{.compute_dist()}.}
+\item{dist_method}{Distance method for the baseline PCoA.}
 
-\item{precomputed_dist_path}{Optional path to a precomputed distance
-matrix (.qza or .tsv). Required when \code{dist_method} is a UniFrac
-variant.}
+\item{precomputed_dist_path}{Optional precomputed distance matrix (.qza or
+.tsv); required for UniFrac.}
 }
 \value{
-A list of class \code{pcoa_obj} containing:
-  \item{pcoa_df}{data frame with PC coordinates + metadata}
-  \item{var_pct}{variance explained per axis}
-  \item{meta_cols}{metadata column names}
-  \item{dist}{dist object}
-  \item{dist_mat}{distance matrix (for easier subsetting)}
-  \item{meta}{aligned metadata data frame}
-  \item{meta_enriched}{metadata with alpha + baseline covariates}
-  \item{config}{the pcoa_config object}
+A \code{pcoa_obj} list: \code{pcoa_df}, \code{var_pct},
+  \code{meta_cols}, \code{dist}, \code{dist_mat}, \code{meta},
+  \code{meta_enriched}, \code{config}, \code{otu_path}, \code{meta_path},
+  \code{otu_scale_info}, \code{match_info} (which samples were matched)
+  and \code{tax_levels} (taxonomic levels the table supports).
 }
 \description{
-Load OTU/species table and metadata, compute PCoA
+Load OTU table and metadata and compute a PCoA
 }

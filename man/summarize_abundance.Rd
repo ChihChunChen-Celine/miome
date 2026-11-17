@@ -8,44 +8,33 @@ summarize_abundance(
   counts,
   metadata,
   group_column = "Treatment",
-  remove_first_row = TRUE,
+  remove_first_row = "auto",
   pct_tol = 1,
   outfile = NULL
 )
 }
 \arguments{
-\item{counts}{Data frame of taxon abundances, taxa as rows (row
-names = taxon/clade string), samples as columns. Typically read with
-\code{read.delim(..., skip = 1, row.names = 1, check.names = FALSE)}
-from a QIIME2 taxa-by-level export.}
+\item{counts}{Data frame of taxon abundances, taxa as rows (row names =
+taxon), samples as columns.}
 
-\item{metadata}{Data frame of sample metadata. Must contain a
-\code{sampleid} column matching \code{counts}' column names, plus
-\code{group_column}.}
+\item{metadata}{Data frame with a \code{sampleid} column matching the
+sample columns, plus \code{group_column}.}
 
-\item{group_column}{Metadata column to group by (default
-\code{"Treatment"}).}
+\item{group_column}{Metadata column to group by.}
 
-\item{remove_first_row}{Logical; drop the first row of \code{counts}
-before processing (e.g. a stray header/comment row). Default
-\code{TRUE}.}
+\item{remove_first_row}{\code{"auto"} (drop the first row only if it is
+non-numeric), \code{TRUE} or \code{FALSE}.}
 
-\item{pct_tol}{Tolerance (percentage points) around 100 for a sample
-column to be treated as "already percent" rather than raw counts.
-Default 1.}
+\item{pct_tol}{Kept for compatibility (unused).}
 
-\item{outfile}{Optional path to write the summary as a CSV.
-\code{NULL} (default) skips writing.}
+\item{outfile}{Optional CSV path for the summary.}
 }
 \value{
-A data frame with columns: the grouping column, \code{Taxon},
-  \code{median_abundance}, \code{min_abundance}, \code{max_abundance},
-  \code{range}.
+Data frame: group column, \code{Taxon}, \code{median_abundance},
+  \code{min_abundance}, \code{max_abundance}, \code{range}.
 }
 \description{
-Converts an OTU/taxonomy count table to relative abundance (percent) -
-auto-detecting and skipping sample columns that are already percent (see
-\code{.detect_and_relativize()}) - filters out very rare taxa, and
-computes median/min/max relative abundance per taxon within each level
-of \code{group_column}.
+Converts to relative abundance (\%) using the same counts-vs-percent rule
+as the rest of the package, drops taxa whose maximum is below 0.01\%, and
+computes median/min/max per taxon within each level of \code{group_column}.
 }

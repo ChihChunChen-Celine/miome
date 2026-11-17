@@ -2,13 +2,13 @@
 % Please edit documentation in R/app.R
 \name{run_app}
 \alias{run_app}
-\title{Launch the PCoA / Microbiome Explorer Shiny App}
+\title{Launch the Microbiome Explorer Shiny app}
 \usage{
 run_app()
 }
 \value{
-Launches a Shiny app in your browser.
+A Shiny app object (opens in your browser).
 }
 \description{
-Launch the PCoA / Microbiome Explorer Shiny App
+Launch the Microbiome Explorer Shiny app
 }

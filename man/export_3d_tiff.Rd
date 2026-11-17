@@ -2,7 +2,7 @@
 % Please edit documentation in R/export.r
 \name{export_3d_tiff}
 \alias{export_3d_tiff}
-\title{Export a 3D PCoA plotly figure as a high-resolution TIFF}
+\title{Export the 3D PCoA plot as a TIFF}
 \usage{
 export_3d_tiff(
   obj,
@@ -15,45 +15,31 @@ export_3d_tiff(
 )
 }
 \arguments{
-\item{obj}{A \code{pcoa_obj} from \code{prepare_pcoa()}.}
+\item{obj}{A \code{pcoa_obj} from \code{prepare_all()}.}
 
-\item{v}{Colour variable name.}
+\item{v}{Colour variable (metadata column).}
 
-\item{outfile}{Output TIFF file path.}
+\item{outfile}{Output file path.}
 
-\item{palette}{RColorBrewer palette name.}
+\item{palette}{Palette name, or your own colours: a named vector such as
+\code{c(Control = "#1B9E77", MUO = "#D95F02")} fixes the colour of those
+groups (the others keep the Miome palette); for a numeric variable an
+unnamed vector such as \code{c("#2F6FB0", "#F2F2F2", "#B8456B")} is a
+gradient from low to high.}
 
-\item{is_cont}{Logical; continuous colour scale?}
+\item{is_cont}{Logical; treat \code{v} as continuous?}
 
-\item{rev_pal}{Logical; reverse palette?}
+\item{rev_pal}{Logical; reverse the palette?}
 
-\item{connect_by}{Optional column for within-subject lines
-(e.g. \code{"CatID"}). Passed to fallback \code{build_2d()}.}
+\item{connect_by}{Optional column for within-subject lines (categorical
+mode only). Lines follow the configured timepoint column.}
 }
 \value{
-Invisibly returns \code{outfile}.
+Invisibly, \code{outfile}.
 }
 \description{
-Attempts to use \code{plotly::save_image()} (requires the
-\code{kaleido} Python package via \code{reticulate}) to render the
-true 3D plotly figure. If \code{kaleido} is unavailable, the function
-falls back gracefully to rendering the equivalent 2D (PC1  PC2) plot
-via \code{build_2d()} and saves that as a TIFF with a caption noting
-the fallback.
-}
-\details{
-\strong{Primary path:} Requires Python \code{kaleido} and
-  \code{reticulate}. Install with:
-  \preformatted{
-    install.packages("reticulate")
-    reticulate::install_miniconda()     # if needed
-    reticulate::py_install("kaleido")
-  }
-\strong{Fallback path:} If \code{kaleido} is unavailable, the PC1  PC2
-  ggplot is saved instead. A caption is added indicating this is a
-  fallback. Users can also use the camera icon in the interactive
-  Shiny panel for a PNG snapshot.
-
-Output dimensions are controlled by \code{export_3d_w_px} and
-\code{export_3d_h_px} in \code{pcoa_config()} (config.R).
+Renders the real 3D figure when Python \code{kaleido} (via
+\code{reticulate}) and the \code{magick} package are available. Otherwise
+it saves the PC1 x PC2 plot with a caption saying so. The camera icon in
+the app always gives a 3D PNG snapshot.
 }

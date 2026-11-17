@@ -1,207 +1,166 @@
 # stats.R
 # -----------------------------------------------------------------------------
-# Statistical testing functions:
-#   1. run_global_test()         - global PERMANOVA / ANOSIM
-#   2. run_pairwise_test()       - pairwise PERMANOVA / ANOSIM
-#   3. run_alpha_lmm()           - LMM for one alpha diversity metric
-#   4. run_alpha_lmm_all_metrics() - loops over all metrics
-#   5. run_alpha_lm_simple()     - simple LM (no random effects, fallback)
-#
-# Compatible with:
-#   config.R  -> padj_method, subject_id_col, is_baseline_col
-#   data.R    -> pcoa_obj$meta, $dist, $meta_enriched, $config
-#   app.R     -> called via eventReactive on button press
-#   mapping   -> CatID, Timepoint, Treatment, Sequence, IsBaseline
+# Statistical testing:
+#   1. run_global_test()            - global PERMANOVA / ANOSIM
+#   2. run_pairwise_test()          - pairwise PERMANOVA / ANOSIM
+#   3. run_alpha_lmm()              - LMM for one alpha diversity metric
+#   4. run_alpha_lmm_all_metrics()  - LMM for every metric (+ cross-metric FDR)
+#   5. run_alpha_lm_simple()        - LM without random effects
 # -----------------------------------------------------------------------------
 
-# -- Internal helper: parse a free-text fixed-effects formula fragment -----
-# Accepts a formula RHS like "Treatment + Timepoint" or
-# "Treatment * Timepoint" or "Treatment + Timepoint + Treatment:Sequence".
-# Returns the set of underlying variable names referenced (for existence
-# checks and complete-case filtering) - unlike the old character-vector
-# API, this correctly picks up variables that only appear inside an
-# interaction term.
+# -- Internal: parse a fixed-effects RHS ("Treatment * Timepoint") -----------
 .parse_fixed_formula <- function(fixed_formula, meta) {
   if (is.null(fixed_formula) || !nzchar(trimws(fixed_formula)))
-    stop(paste0(
-      "Fixed effects formula is empty. Please enter at least one term, ",
-      "e.g. 'Treatment + Timepoint' or 'Treatment * Timepoint'."
-    ), call. = FALSE)
-
+    stop("The formula is empty. Enter at least one term, e.g. ",
+         "'Treatment + Timepoint' or 'Treatment * Timepoint'.", call. = FALSE)
   fml <- tryCatch(
     stats::as.formula(paste("~", fixed_formula)),
     error = function(e)
-      stop("Cannot parse fixed-effects formula '", fixed_formula, "':\n  ",
-           e$message,
-           "\n(Tip: wrap column names containing spaces or special ",
-           "characters in backticks, e.g. `Time Point`.)",
-           call. = FALSE)
-  )
-
-  vars_used <- unique(all.vars(fml))
-  missing_cols <- setdiff(vars_used, colnames(meta))
-  if (length(missing_cols) > 0)
-    stop(sprintf(
-      "Fixed-effects formula term(s) not found in metadata: %s\nAvailable columns: %s",
-      paste(missing_cols, collapse = ", "),
-      paste(colnames(meta), collapse = ", ")
-    ), call. = FALSE)
-
-  list(fml = fml, vars_used = vars_used)
+      stop("Cannot read formula '", fixed_formula, "': ", conditionMessage(e),
+           "\n(Tip: wrap column names containing spaces in backticks, ",
+           "e.g. `Time Point`.)", call. = FALSE))
+  vars <- unique(all.vars(fml))
+  miss <- setdiff(vars, colnames(meta))
+  if (length(miss))
+    stop(sprintf("Formula term(s) not found in metadata: %s\nAvailable columns: %s",
+                 paste(miss, collapse = ", "), paste(colnames(meta), collapse = ", ")),
+         call. = FALSE)
+  list(fml = fml, vars_used = vars)
 }
 
-# -- Internal helper: rebuild a fixed-effects RHS with every bare variable
-# name backtick-quoted, so column names containing spaces or other
-# non-syntactic characters never break stats::as.formula() downstream.
-# Uses terms()'s term.labels (not the raw user text) so "*" has already
-# been expanded into main effects + interaction(s), and interaction terms
-# come back as "VarA:VarB" - each side is quoted independently.
+# -- Internal: rebuild the RHS with every variable backtick-quoted -----------
 .build_quoted_fixed_rhs <- function(fml) {
-  term_labels <- attr(stats::terms(fml), "term.labels")
-  if (length(term_labels) == 0)
-    stop("Fixed-effects formula resolved to zero terms.", call. = FALSE)
-
-  quoted_terms <- vapply(term_labels, function(term) {
-    parts <- strsplit(term, ":", fixed = TRUE)[[1]]
-    parts <- vapply(parts, function(p) {
-      # Leave function-wrapped terms (e.g. I(Age^2)) unquoted - backticks
-      # only make sense around bare variable names.
-      if (grepl("[()]", p)) p else sprintf("`%s`", p)
-    }, character(1))
-    paste(parts, collapse = ":")
-  }, character(1))
-
-  paste(quoted_terms, collapse = " + ")
+  labs <- attr(stats::terms(fml), "term.labels")
+  if (!length(labs)) stop("Formula resolved to zero terms.", call. = FALSE)
+  quote1 <- function(p) if (grepl("[()`]", p)) p else sprintf("`%s`", p)
+  paste(vapply(labs, function(t)
+    paste(vapply(strsplit(t, ":", fixed = TRUE)[[1]], quote1, ""), collapse = ":"),
+    ""), collapse = " + ")
 }
 
-# -- Internal helper: reject the same column in multiple statistical roles --
-# Picking one column as primary variable + covariate + strata risks
-# rank-deficiency in adonis2 and is almost always a UI mistake.
+.quote_terms <- function(vars) paste(sprintf("`%s`", vars), collapse = " + ")
+
+# -- Internal: reject the same column in several roles -----------------------
 .check_var_conflicts <- function(v, covariates = NULL, strata = NULL) {
-  if (!is.null(covariates) && v %in% covariates)
-    stop(sprintf(
-      "'%s' cannot be used as both the primary grouping variable and a covariate. Remove it from the covariate list.",
-      v
-    ))
-  if (!is.null(strata) && identical(v, strata))
-    stop(sprintf(
-      "'%s' cannot be used as both the primary grouping variable and strata. Choose a different strata column (e.g. a subject ID) or a different grouping variable.",
-      v
-    ))
-  if (!is.null(strata) && !is.null(covariates) && strata %in% covariates)
-    stop(sprintf(
-      "'%s' cannot be used as both a covariate and strata. Remove it from one.",
-      strata
-    ))
+  if (v %in% covariates)
+    stop(sprintf("'%s' cannot be both the grouping variable and a covariate.", v),
+         call. = FALSE)
+  if (identical(v, strata))
+    stop(sprintf("'%s' cannot be both the grouping variable and strata. Choose a subject ID as strata.", v),
+         call. = FALSE)
+  if (!is.null(strata) && strata %in% covariates)
+    stop(sprintf("'%s' cannot be both a covariate and strata.", strata),
+         call. = FALSE)
 }
 
-# -- Internal helper: reject a continuous column as a grouping variable -----
-# PERMANOVA/ANOSIM group samples by factor level; a numeric column with
-# many unique values (e.g. Shannon diversity) produces near-singleton
-# "groups" and a meaningless test, not an error, so it needs an explicit
-# guard rather than relying on the test itself to fail loudly.
+# -- Internal: reject a continuous column as grouping variable ---------------
 .check_not_continuous <- function(meta_f, v, max_levels = 15) {
-  vals <- meta_f[[v]]
-  if (is.numeric(vals)) {
-    n_unique <- length(unique(vals[!is.na(vals)]))
-    if (n_unique > max_levels)
-      stop(sprintf(
-        paste0(
-          "'%s' looks like a continuous numeric variable (%d unique values), ",
-          "not a grouping factor. PERMANOVA/ANOSIM require a categorical ",
-          "grouping variable (e.g. Treatment, Timepoint) - a continuous ",
-          "column such as an alpha-diversity metric belongs in the ",
-          "'covariates' list instead, not as the primary variable."
-        ),
-        v, n_unique
-      ))
-  }
+  x <- meta_f[[v]]
+  n <- length(unique(x[!is.na(x)]))
+  if (is.numeric(x) && n > max_levels)
+    stop(sprintf(paste0(
+      "'%s' looks like a continuous number (%d unique values), not a group. ",
+      "PERMANOVA/ANOSIM need a categorical grouping variable such as Treatment; ",
+      "put continuous columns in 'Covariates' instead."), v, n), call. = FALSE)
 }
 
-# -- Internal helper: build a restricted-permutation block factor safely ---
-# Only restricts permutations when there are >=2 blocks AND every block has
-# >=2 observations. permute::how() can error (or silently do the wrong
-# thing) on singleton blocks - e.g. a subject present in only one phase -
-# so in that case we fall back to unrestricted permutations with a warning
-# rather than letting the test crash.
-.safe_strata_blocks <- function(meta_f, strata) {
-  if (is.null(strata) || !strata %in% colnames(meta_f)) return(NULL)
+# -- Internal: restricted permutations -------------------------------------------
+# Samples are only shuffled within their own block (e.g. within each animal).
+# A block with a single sample (e.g. an animal that dropped out) is fine: that
+# sample simply stays in place. The restriction is only impossible when NO
+# block has two or more samples.
+# Returns: blocks (factor or NULL), label for the results table, the
+# `permutations` argument for vegan, the number of permutations actually
+# available, and a note for the user.
+.strata_plan <- function(meta_f, strata, permutations) {
+  plan <- list(blocks = NULL, label = NA_character_, perm = permutations,
+               n_perm = permutations, note = "")
+  if (is.null(strata) || !strata %in% colnames(meta_f)) return(plan)
 
   blocks <- factor(meta_f[[strata]])
-  tbl    <- table(blocks)
-
-  if (length(tbl) < 2) {
-    warning(sprintf(
-      "Strata column '%s' has fewer than 2 blocks after filtering - permutations left unrestricted.",
-      strata
-    ))
-    return(NULL)
+  size   <- table(blocks)
+  if (!any(size >= 2)) {
+    warning(sprintf(paste0("Strata '%s': every block has a single sample, so there is ",
+                           "nothing to permute within blocks - permutations left unrestricted."),
+                    strata), call. = FALSE)
+    plan$label <- sprintf("%s (NOT applied: every block has one sample)", strata)
+    return(plan)
   }
-
-  if (any(tbl < 2)) {
-    warning(sprintf(
-      "Strata column '%s' has block(s) with a single observation (%s) - permutations left unrestricted to avoid permute::how() errors.",
-      strata, paste(names(tbl)[tbl < 2], collapse = ", ")
-    ))
-    return(NULL)
+  n_single <- sum(size == 1)
+  possible <- prod(factorial(as.numeric(size)))        # distinct within-block shuffles
+  plan$blocks <- blocks
+  plan$perm   <- permute::how(nperm = permutations, blocks = blocks)
+  plan$label  <- if (n_single)
+    sprintf("%s (%d single-sample block%s kept fixed)", strata, n_single,
+            if (n_single > 1) "s" else "") else strata
+  # When the complete set of within-block shuffles is small enough, use ALL of
+  # them: the p-value is then exact and identical on every run.
+  if (is.finite(possible) && possible <= max(10000, permutations + 1)) {
+    plan$perm   <- permute::how(nperm = possible, blocks = blocks,
+                                maxperm = possible + 1, minperm = possible + 1)
+    plan$n_perm <- possible - 1
+    plan$note   <- sprintf("exact test: all %d possible permutations within %s used (smallest possible p = %s)",
+                           possible, strata, signif(1 / possible, 2))
   }
-
-  blocks
+  plan
 }
 
-# -- Internal helper: filter baseline + missing --------------------------------
-# Removes baseline rows and rows with NA in any requested variable
-.filter_meta <- function(meta, vars_needed,
-                         is_baseline_col = "IsBaseline",
+# TRUE for model terms whose variables never change within a block: such
+# between-subject terms cannot be tested by shuffling within blocks.
+.constant_within <- function(terms, meta_f, blocks) {
+  if (is.null(blocks)) return(rep(FALSE, length(terms)))
+  const <- function(v) v %in% colnames(meta_f) &&
+    all(tapply(as.character(meta_f[[v]]), blocks, function(x) length(unique(x)) <= 1))
+  vapply(strsplit(gsub("`", "", terms), ":", fixed = TRUE),
+         function(vs) all(vapply(vs, const, logical(1))), logical(1))
+}
+
+# -- Internal: drop baseline rows (NA-safe) and incomplete cases --------------
+.filter_meta <- function(meta, vars_needed, is_baseline_col = "IsBaseline",
                          exclude_baseline = TRUE) {
-
-  # Exclude baseline samples from treatment comparisons
-  if (isTRUE(exclude_baseline) &&
-      is_baseline_col %in% colnames(meta)) {
-    meta <- meta[meta[[is_baseline_col]] == FALSE, , drop = FALSE]
-  }
-
-  # Complete cases across all needed variables
-  sub <- meta[, intersect(vars_needed, colnames(meta)), drop = FALSE]
-  keep <- stats::complete.cases(sub)
-
-  if (sum(keep) == 0)
-    stop(sprintf(
-      "No complete cases remaining after filtering. Check columns: %s",
-      paste(vars_needed, collapse = ", ")
-    ))
-
-  if (sum(!keep) > 0)
-    message(sprintf(
-      "%d sample(s) dropped due to NA in: %s",
-      sum(!keep),
-      paste(vars_needed, collapse = ", ")
-    ))
-
+  if (isTRUE(exclude_baseline))
+    meta <- meta[!.is_baseline(meta, is_baseline_col), , drop = FALSE]
+  keep <- stats::complete.cases(meta[, intersect(vars_needed, colnames(meta)),
+                                     drop = FALSE])
+  if (!any(keep))
+    stop(sprintf("No complete samples left after filtering. Check columns: %s",
+                 paste(vars_needed, collapse = ", ")), call. = FALSE)
+  if (any(!keep))
+    message(sprintf("%d sample(s) dropped due to NA in: %s", sum(!keep),
+                    paste(vars_needed, collapse = ", ")))
   meta[keep, , drop = FALSE]
 }
 
-# -- 1. run_global_test() ------------------------------------------------------
+.sub_dist <- function(obj, ids) {
+  m <- if (!is.null(obj$dist_mat)) obj$dist_mat else as.matrix(obj$dist)
+  stats::as.dist(m[ids, ids])
+}
 
-#' Run global PERMANOVA or ANOSIM on a PCoA object
+# -- 1. run_global_test() ------------------------------------------------------
+#' Run a global PERMANOVA or ANOSIM on a PCoA object
 #'
-#' For crossover designs, supply \code{covariates = c("Timepoint",
-#' "Sequence")} and \code{strata = "CatID"} to restrict permutations
-#' within individual animals and adjust for period/sequence effects.
+#' For crossover designs supply \code{covariates = c("Timepoint", "Sequence")}
+#' and \code{strata = "CatID"} to adjust for period/sequence and restrict
+#' permutations within subjects.
 #'
-#' @param obj         A \code{pcoa_obj} from \code{prepare_pcoa()}.
-#' @param v           Primary grouping variable (metadata column).
-#' @param method      Either \code{"permanova"} or \code{"anosim"}.
-#' @param covariates  Character vector of covariate column names to add
-#'   before \code{v} in the PERMANOVA formula. Ignored for ANOSIM.
-#' @param strata      Metadata column for restricted permutations
-#'   (e.g. \code{"CatID"} for crossover design). \code{NULL} = unrestricted.
-#' @param permutations Number of permutations (default 999).
-#' @param exclude_baseline Logical; exclude \code{IsBaseline == TRUE} rows.
-#' @return A data frame with the global test result.
-#' @importFrom vegan adonis2 anosim
-#' @importFrom permute how
-#' @importFrom stats as.formula complete.cases
+#' @param obj A \code{pcoa_obj} from \code{prepare_all()} / \code{prepare_pcoa()}.
+#' @param v Primary grouping variable (metadata column).
+#' @param method \code{"permanova"} or \code{"anosim"}.
+#' @param covariates Covariate columns entered before \code{v} in the
+#'   PERMANOVA model. Ignored for ANOSIM.
+#' @param strata Column for restricted permutations (e.g. a subject ID), or
+#'   \code{NULL}.
+#' @param permutations Number of permutations.
+#' @param exclude_baseline Logical; drop baseline samples first.
+#' @param formula_rhs Optional full PERMANOVA model, e.g.
+#'   \code{"Treatment * Timepoint"}. When given it replaces
+#'   \code{covariates} + \code{v} and every model term is reported.
+#' @return A data frame with one row per fitted model term (covariates first,
+#'   in model order; terms are tested sequentially). \code{Strata} says how
+#'   the restriction was applied (blocks with one sample stay fixed).
+#'   \code{Note} flags terms that do not vary within the strata - their
+#'   p-value is \code{NA} because shuffling within blocks cannot test them -
+#'   and cases where few distinct permutations exist.
 #' @export
 run_global_test <- function(obj, v,
                             method           = c("permanova", "anosim"),
@@ -210,166 +169,102 @@ run_global_test <- function(obj, v,
                             permutations     = 999,
                             exclude_baseline = TRUE,
                             formula_rhs      = NULL) {
+  method   <- match.arg(method)
+  cfg      <- obj$config
+  use_fml  <- method == "permanova" && !is.null(formula_rhs) &&
+              nzchar(trimws(formula_rhs))
 
-  method <- match.arg(method)
-  cfg    <- obj$config
-
-  # -- Guard against conflicting variable roles ------------------
-  .check_var_conflicts(v, covariates, strata)
-
-  # -- Determine columns needed for complete-case filter --------
-  # If a free-text formula is supplied, extract its variables so
-  # complete-case filtering covers everything the model references
-  # (including variables that only appear inside an interaction).
-  if (!is.null(formula_rhs) && nzchar(trimws(formula_rhs))) {
-    fml_tmp     <- stats::as.formula(paste("~", formula_rhs))
-    formula_vars <- all.vars(fml_tmp)               # base::all.vars (NOT stats::)
-    missing_cols <- setdiff(formula_vars, colnames(obj$meta))
-    if (length(missing_cols) > 0)
-      stop(sprintf(
-        "Formula term(s) not found in metadata: %s\nAvailable: %s",
-        paste(missing_cols, collapse = ", "),
-        paste(colnames(obj$meta), collapse = ", ")
-      ), call. = FALSE)
-    vars_needed <- unique(c(formula_vars, strata))
+  if (use_fml) {
+    parsed      <- .parse_fixed_formula(formula_rhs, obj$meta)
+    if (!is.null(strata) && strata %in% parsed$vars_used)
+      stop(sprintf("'%s' is used as strata and also appears in the formula.", strata),
+           call. = FALSE)
+    vars_needed <- unique(c(parsed$vars_used, strata))
   } else {
+    .check_var_conflicts(v, covariates, strata)
     vars_needed <- unique(c(v, covariates, strata))
   }
-  # -- Filter metadata -------------------------------------------
-  meta_f <- .filter_meta(
-    meta             = obj$meta,
-    vars_needed      = vars_needed,
-    is_baseline_col  = cfg$is_baseline_col,
-    exclude_baseline = exclude_baseline
-  )
 
-  # -- Guard against a continuous column as the grouping variable -
-  .check_not_continuous(meta_f, v)
+  meta_f <- .filter_meta(obj$meta, vars_needed, cfg$is_baseline_col, exclude_baseline)
+  d      <- .sub_dist(obj, rownames(meta_f))
 
-  # -- Subset distance matrix to filtered samples ---------------
-  d <- stats::as.dist(
-    as.matrix(obj$dist)[rownames(meta_f), rownames(meta_f)]
-  )
-
-  # -- Validate primary grouping variable ------------------------
-  grp <- factor(meta_f[[v]])
-  if (nlevels(grp) < 2)
-    stop(sprintf(
-      "Variable '%s' has fewer than 2 levels after filtering: %s",
-      v, paste(levels(grp), collapse = ", ")
-    ))
-
-  # -- PERMANOVA ------------------------------------------------
-  if (method == "permanova") {
-
-    # Build formula. If a free-text RHS is supplied (supports "*" and ":"
-    # for interactions) use it verbatim; otherwise fall back to the
-    # covariates-then-primary-variable additive construction.
-    if (!is.null(formula_rhs) && nzchar(trimws(formula_rhs))) {
-      rhs <- formula_rhs
-    } else {
-      rhs <- paste(c(covariates, v), collapse = " + ")
-    }
-    fml <- stats::as.formula(paste("d ~", rhs))
-
-    # Restricted permutations within strata - only if every block
-    # has enough observations (.safe_strata_blocks warns + falls back
-    # to unrestricted permutations otherwise).
-    perm_ctrl <- permutations
-    blocks    <- .safe_strata_blocks(meta_f, strata)
-    if (!is.null(blocks)) {
-      perm_ctrl <- permute::how(
-        nperm  = permutations,
-        blocks = blocks
-      )
-      message(sprintf(
-        "Permutations restricted within strata: %s (%d blocks)",
-        strata, length(unique(blocks))
-      ))
-    }
-
-    fit   <- vegan::adonis2(fml, data = meta_f,
-                            permutations = perm_ctrl,
-                            by = "terms")
-
-    # Extract the row for the primary variable v
-    ft <- as.data.frame(fit)
-    ft$Term <- rownames(ft)
-
-    if (!is.null(formula_rhs) && nzchar(trimws(formula_rhs))) {
-      # Free-text formula: return EVERY model term (main effects +
-      # interaction[s] + Residual/Total) so the interaction row is visible.
-      keep <- !ft$Term %in% c("Residual", "Total")
-      out_tbl <- data.frame(
-        Test         = "PERMANOVA (global)",
-        Variable     = ft$Term[keep],
-        Covariates   = NA_character_,
-        Strata       = if (is.null(strata)) NA_character_ else strata,
-        N_samples    = nrow(meta_f),
-        Statistic_R2 = round(ft$R2[keep], 4),
-        F_value      = round(ft$F[keep], 4),
-        p_value      = ft$`Pr(>F)`[keep],
-        Permutations = permutations,
-        stringsAsFactors = FALSE
-      )
-      rownames(out_tbl) <- NULL
-      out_tbl
-    } else {
-      # Original behaviour: single row for the primary variable v.
-      row_v <- which(ft$Term == v)
-      if (length(row_v) == 0)
-        stop(sprintf("Variable '%s' not found in adonis2 output.", v))
-      data.frame(
-        Test         = "PERMANOVA (global)",
-        Variable     = v,
-        Covariates   = if (is.null(covariates)) NA_character_
-        else paste(covariates, collapse = " + "),
-        Strata       = if (is.null(strata)) NA_character_ else strata,
-        N_samples    = nrow(meta_f),
-        Statistic_R2 = round(ft$R2[row_v], 4),
-        F_value      = round(ft$F[row_v], 4),
-        p_value      = ft$`Pr(>F)`[row_v],
-        Permutations = permutations,
-        stringsAsFactors = FALSE
-      )
-    }
-    # -- ANOSIM ---------------------------------------------------
-  } else {
-
-    if (!is.null(covariates))
-      warning("ANOSIM does not support covariates. 'covariates' ignored.")
-
-    strata_vec <- .safe_strata_blocks(meta_f, strata)
-
-    fit <- vegan::anosim(d, grp,
-                         permutations = permutations,
-                         strata       = strata_vec)
-
-    data.frame(
-      Test         = "ANOSIM (global)",
-      Variable     = v,
-      Covariates   = NA_character_,
-      Strata       = if (is.null(strata)) NA_character_ else strata,
-      N_samples    = nrow(meta_f),
-      Statistic_R  = round(fit$statistic, 4),
-      F_value      = NA_real_,
-      p_value      = fit$signif,
-      Permutations = permutations,
-      stringsAsFactors = FALSE
-    )
+  if (!use_fml) {
+    .check_not_continuous(meta_f, v)
+    grp <- factor(meta_f[[v]])
+    if (nlevels(grp) < 2)
+      stop(sprintf("'%s' has fewer than 2 groups after filtering: %s",
+                   v, paste(levels(grp), collapse = ", ")), call. = FALSE)
   }
+
+  plan   <- .strata_plan(meta_f, strata, permutations)
+  blocks <- plan$blocks
+  notes  <- function(terms) {
+    fixed <- .constant_within(terms, meta_f, blocks)
+    n <- ifelse(fixed, sprintf("does not vary within %s: cannot be tested with restricted permutations",
+                               strata), "")
+    list(fixed = fixed, text = trimws(paste(n, ifelse(nzchar(n) & nzchar(plan$note), ";", ""),
+                                            plan$note)))
+  }
+
+  if (method == "anosim") {
+    if (!is.null(covariates))
+      warning("ANOSIM does not support covariates; they were ignored.", call. = FALSE)
+    message(sprintf("ANOSIM: %s | strata: %s | n = %d", v,
+                    if (is.null(blocks)) "none" else strata, nrow(meta_f)))
+    fit <- suppressMessages(vegan::anosim(d, grp, permutations = plan$perm))
+    nt  <- notes(v)
+    return(data.frame(Test = "ANOSIM (global)", Variable = v,
+                      Covariates = NA_character_, Strata = plan$label,
+                      N_samples = nrow(meta_f),
+                      Statistic_R = round(fit$statistic, 4), F_value = NA_real_,
+                      p_value = if (nt$fixed) NA_real_ else fit$signif,
+                      Permutations = plan$n_perm, Note = nt$text))
+  }
+
+  rhs <- if (use_fml) .build_quoted_fixed_rhs(parsed$fml)
+         else .quote_terms(c(covariates, v))
+  message(sprintf("PERMANOVA: distance ~ %s | strata: %s | n = %d | %d permutations",
+                  gsub("`", "", rhs), if (is.null(blocks)) "none" else plan$label,
+                  nrow(meta_f), plan$n_perm))
+  fit <- suppressMessages(
+    vegan::adonis2(stats::as.formula(paste("d ~", rhs)), data = meta_f,
+                   permutations = plan$perm, by = "terms"))
+  ft  <- as.data.frame(fit)
+  ft$Term <- gsub("`", "", rownames(ft))
+  # Every fitted term (covariates first, in model order) is reported, so the
+  # table itself shows which terms PERMANOVA actually used.
+  rows <- which(!ft$Term %in% c("Residual", "Total"))
+  if (!use_fml && !v %in% ft$Term)
+    stop(sprintf("'%s' not found in adonis2 output.", v), call. = FALSE)
+  nt <- notes(ft$Term[rows])
+
+  out <- data.frame(
+    Test         = "PERMANOVA (global)",
+    Variable     = ft$Term[rows],
+    Role         = if (use_fml) "model term"
+                   else ifelse(ft$Term[rows] == v, "primary variable", "covariate"),
+    Covariates   = if (use_fml) paste("formula:", formula_rhs)
+                   else if (length(covariates)) paste(covariates, collapse = " + ")
+                   else NA_character_,
+    Strata       = plan$label,
+    N_samples    = nrow(meta_f),
+    Statistic_R2 = round(ft$R2[rows], 4),
+    F_value      = round(ft$F[rows], 4),
+    p_value      = ifelse(nt$fixed, NA_real_, ft$`Pr(>F)`[rows]),
+    Permutations = plan$n_perm,
+    Note         = nt$text
+  )
+  rownames(out) <- NULL
+  out
 }
 
 # -- 2. run_pairwise_test() ----------------------------------------------------
-
 #' Run pairwise PERMANOVA or ANOSIM with p-value adjustment
 #'
+#' The adjustment method is taken from \code{obj$config$padj_method}.
+#'
 #' @inheritParams run_global_test
-#' @return A data frame with pairwise results and BH-adjusted p-values.
-#' @importFrom vegan adonis2 anosim
-#' @importFrom permute how
-#' @importFrom stats as.dist p.adjust complete.cases as.formula
-#' @importFrom utils combn
+#' @return A data frame with one row per pair of groups.
 #' @export
 run_pairwise_test <- function(obj, v,
                               method           = c("permanova", "anosim"),
@@ -377,143 +272,103 @@ run_pairwise_test <- function(obj, v,
                               strata           = NULL,
                               permutations     = 999,
                               exclude_baseline = TRUE) {
-
-  method    <- match.arg(method)
-  cfg       <- obj$config
-  padj_meth <- cfg$padj_method   # from pcoa_config() (config.R)
-
-  # -- Guard against conflicting variable roles ------------------
+  method <- match.arg(method)
+  cfg    <- obj$config
   .check_var_conflicts(v, covariates, strata)
-
-  # -- Filter metadata -------------------------------------------
-  vars_needed <- unique(c(v, covariates, strata))
-
-  meta_f <- .filter_meta(
-    meta             = obj$meta,
-    vars_needed      = vars_needed,
-    is_baseline_col  = cfg$is_baseline_col,
-    exclude_baseline = exclude_baseline
-  )
-
-  # -- Guard against a continuous column as the grouping variable -
+  meta_f <- .filter_meta(obj$meta, unique(c(v, covariates, strata)),
+                         cfg$is_baseline_col, exclude_baseline)
   .check_not_continuous(meta_f, v)
 
-  full_mat <- as.matrix(obj$dist)[rownames(meta_f), rownames(meta_f)]
-  grp      <- factor(meta_f[[v]])
-  lvls     <- levels(grp)
+  grp  <- factor(meta_f[[v]])
+  if (nlevels(grp) < 2)
+    stop(sprintf("'%s' must have at least 2 groups.", v), call. = FALSE)
+  rhs  <- .quote_terms(c(covariates, v))
 
-  if (length(lvls) < 2)
-    stop(sprintf("Variable '%s' must have at least 2 levels.", v))
-
-  pairs <- utils::combn(lvls, 2, simplify = FALSE)
-
-  # -- Loop over all pairs ---------------------------------------
-  res <- lapply(pairs, function(pr) {
-
-    idx    <- grp %in% pr
-    md_sub <- meta_f[idx, , drop = FALSE]
-    d_sub  <- stats::as.dist(full_mat[idx, idx])
-    g_sub  <- factor(md_sub[[v]])
-
+  out <- do.call(rbind, lapply(utils::combn(levels(grp), 2, simplify = FALSE), function(pr) {
+    md  <- meta_f[grp %in% pr, , drop = FALSE]
+    d   <- .sub_dist(obj, rownames(md))
+    plan <- suppressWarnings(.strata_plan(md, strata, permutations))
     if (method == "permanova") {
-
-      rhs <- paste(c(covariates, v), collapse = " + ")
-      fml <- stats::as.formula(paste("d_sub ~", rhs))
-
-      # Restricted permutations within strata, but only when every block
-      # in THIS pair's subset has enough observations (e.g. a subject
-      # present in only one phase would otherwise error inside
-      # permute::how() for this particular pairwise comparison).
-      perm_ctrl <- permutations
-      blocks    <- .safe_strata_blocks(md_sub, strata)
-      if (!is.null(blocks)) {
-        perm_ctrl <- permute::how(
-          nperm  = permutations,
-          blocks = blocks
-        )
-      }
-
-      fit   <- vegan::adonis2(fml, data = md_sub,
-                              permutations = perm_ctrl,
-                              by = "terms")
-      row_v <- which(rownames(fit) == v)
-
-      data.frame(
-        Group1    = pr[1],
-        Group2    = pr[2],
-        N         = nrow(md_sub),
-        Statistic = round(fit$R2[row_v], 4),
-        F_value   = round(fit$F[row_v],  4),
-        p_value   = fit$`Pr(>F)`[row_v],
-        stringsAsFactors = FALSE
-      )
-
+      fit <- suppressMessages(
+        vegan::adonis2(stats::as.formula(paste("d ~", rhs)), data = md,
+                       permutations = plan$perm, by = "terms"))
+      r <- which(gsub("`", "", rownames(fit)) == v)
+      stat <- fit$R2[r]; fval <- fit$F[r]; p <- fit$`Pr(>F)`[r]
     } else {
-
-      strata_vec <- .safe_strata_blocks(md_sub, strata)
-
-      fit <- vegan::anosim(d_sub, g_sub,
-                           permutations = permutations,
-                           strata       = strata_vec)
-
-      data.frame(
-        Group1    = pr[1],
-        Group2    = pr[2],
-        N         = nrow(md_sub),
-        Statistic = round(fit$statistic, 4),
-        F_value   = NA_real_,
-        p_value   = fit$signif,
-        stringsAsFactors = FALSE
-      )
+      fit  <- suppressMessages(vegan::anosim(d, factor(md[[v]]), permutations = plan$perm))
+      stat <- fit$statistic; fval <- NA_real_; p <- fit$signif
     }
-  })
+    # a grouping that never changes within a block cannot be tested within blocks
+    if (.constant_within(v, md, plan$blocks)) p <- NA_real_
+    data.frame(Group1 = pr[1], Group2 = pr[2], N = nrow(md),
+               Statistic = round(stat, 4), F_value = round(fval, 4), p_value = p,
+               Strata = plan$label, Permutations = plan$n_perm)
+  }))
 
-  out <- do.call(rbind, res)
-
-  # -- p-value adjustment ----------------------------------------
-  out$p_adjusted    <- stats::p.adjust(out$p_value, method = padj_meth)
-  out$Test          <- ifelse(method == "permanova",
-                              "PERMANOVA (pairwise)", "ANOSIM (pairwise)")
+  out$p_adjusted    <- stats::p.adjust(out$p_value, method = cfg$padj_method)
+  out$Test          <- if (method == "permanova") "PERMANOVA (pairwise)" else "ANOSIM (pairwise)"
   out$Variable      <- v
-  out$Covariates    <- if (is.null(covariates)) NA_character_
-  else paste(covariates, collapse = " + ")
-  out$Adjust_method <- padj_meth
+  out$Adjust_method <- cfg$padj_method
+  out$Covariates    <- if (length(covariates)) paste(covariates, collapse = " + ") else NA_character_
+  out[, c("Test", "Variable", "Group1", "Group2", "N", "Statistic", "F_value",
+          "p_value", "p_adjusted", "Adjust_method", "Covariates", "Strata",
+          "Permutations")]
+}
 
-  # Reorder columns for readability
-  out[, c("Test", "Variable", "Group1", "Group2", "N",
-          "Statistic", "F_value", "p_value",
-          "p_adjusted", "Adjust_method", "Covariates")]
+# -- Internal: shared model-data preparation for LMM / LM ---------------------
+.prep_model_data <- function(meta_enriched, metric, fixed_formula, extra_vars,
+                             treatment_ref, treatment_col, is_baseline_col) {
+  if (!metric %in% colnames(meta_enriched))
+    stop(sprintf("Metric '%s' not found.", metric), call. = FALSE)
+  parsed <- .parse_fixed_formula(fixed_formula, meta_enriched)
+  md <- meta_enriched[!.is_baseline(meta_enriched, is_baseline_col), , drop = FALSE]
+
+  if (treatment_col %in% parsed$vars_used) {
+    md[[treatment_col]] <- factor(md[[treatment_col]])
+    if (!is.null(treatment_ref) && treatment_ref %in% levels(md[[treatment_col]]))
+      md[[treatment_col]] <- stats::relevel(md[[treatment_col]], ref = treatment_ref)
+  }
+  vars <- unique(c(metric, parsed$vars_used, extra_vars))
+  cc   <- stats::complete.cases(md[, vars, drop = FALSE])
+  if (any(!cc))
+    message(sprintf("%d row(s) dropped due to NA in model variables.", sum(!cc)))
+  list(md = md[cc, , drop = FALSE], rhs = .build_quoted_fixed_rhs(parsed$fml))
+}
+
+.coef_table <- function(fit, metric, fml_str, padj_method) {
+  ct <- as.data.frame(summary(fit)$coefficients)
+  out <- data.frame(Metric = metric, Term = rownames(ct), Estimate = ct[, 1],
+                    SE = ct[, 2], stringsAsFactors = FALSE)
+  if (ncol(ct) == 5) out$df <- ct[, 3]          # lmerTest: Satterthwaite df
+  out$t_value    <- ct[, ncol(ct) - 1]
+  out$p_value    <- ct[, ncol(ct)]
+  out$p_adjusted <- stats::p.adjust(out$p_value, method = padj_method)
+  out$N          <- stats::nobs(fit)            # samples actually used by this model
+  out$Formula    <- fml_str
+  rownames(out)  <- NULL
+  out
 }
 
 # -- 3. run_alpha_lmm() --------------------------------------------------------
 #' Fit a linear mixed model for one alpha diversity metric
 #'
-#' Accepts a free-text fixed-effects formula fragment, so interactions are
-#' supported directly, e.g. \code{fixed_formula = "Treatment * Timepoint"}
-#' or \code{"Treatment + Timepoint + Treatment:Sequence"}.
-#' The random effect (\code{random_effect}) is always a single random
-#' intercept, e.g. \code{(1|CatID)}. Baseline samples are automatically
-#' excluded.
+#' Baseline samples are excluded from the model rows. Interactions are
+#' supported in \code{fixed_formula}, e.g. \code{"Treatment * Timepoint"}.
 #'
 #' @param meta_enriched Data frame from \code{pcoa_obj$meta_enriched}.
-#' @param metric        Alpha diversity column to model (e.g. \code{"Shannon"}).
-#' @param fixed_formula Free-text fixed-effects formula fragment (no
-#'   leading \code{~}, no random effect term). Supports \code{+}, \code{*},
-#'   \code{:}. Column names with spaces or special characters must be
-#'   backtick-quoted, e.g. \code{`Time Point`}.
-#'   Default: \code{"Treatment + Timepoint + Sequence"}.
-#' @param random_effect Metadata column for the random intercept
-#'   (default \code{"CatID"}).
-#' @param treatment_ref Reference level for the treatment variable
-#'   (default \code{"CON"}).
-#' @param treatment_col Name of the treatment column (default
-#'   \code{"Treatment"}).
-#' @param is_baseline_col Column flagging baseline rows (default
-#'   \code{"IsBaseline"}).
-#' @param padj_method   p-value adjustment method (default \code{"BH"}).
+#' @param metric Alpha diversity column to model (e.g. \code{"Shannon"}).
+#' @param fixed_formula Fixed-effects formula without \code{~} or random
+#'   effect. Backtick-quote names with spaces.
+#' @param random_effect One or more columns, each added as its own random
+#'   intercept, e.g. \code{c("CatID", "Litter")} gives
+#'   \code{(1|CatID) + (1|Litter)}. Nested designs work as crossed terms as
+#'   long as IDs are unique across groups (e.g. litter "L1" is never reused in
+#'   another house).
+#' @param treatment_ref Reference level of the treatment column.
+#' @param treatment_col Treatment column name.
+#' @param is_baseline_col Baseline flag column.
+#' @param padj_method p-value adjustment method for \code{p_adjusted}.
 #' @return A data frame with one row per model term.
-#' @importFrom lmerTest lmer
-#' @importFrom stats as.formula p.adjust relevel complete.cases terms
 #' @export
 run_alpha_lmm <- function(meta_enriched,
                           metric          = "Shannon",
@@ -523,400 +378,214 @@ run_alpha_lmm <- function(meta_enriched,
                           treatment_col   = "Treatment",
                           is_baseline_col = "IsBaseline",
                           padj_method     = "BH") {
+  random_effect <- unique(random_effect[!is.na(random_effect) & nzchar(random_effect)])
+  if (!length(random_effect))
+    stop("Choose at least one random effect column.", call. = FALSE)
+  miss <- setdiff(random_effect, colnames(meta_enriched))
+  if (length(miss))
+    stop(sprintf("Random effect column(s) not found: %s", paste(miss, collapse = ", ")),
+         call. = FALSE)
+  both <- intersect(random_effect, .parse_fixed_formula(fixed_formula, meta_enriched)$vars_used)
+  if (length(both))
+    stop(sprintf("'%s' is in both the fixed effects and the random effects - use it in only one.",
+                 paste(both, collapse = "', '")), call. = FALSE)
 
-  # -- Validate --------------------------------------------------
-  if (!metric %in% colnames(meta_enriched))
-    stop(sprintf("Metric '%s' not found in meta_enriched.", metric))
-
-  if (!random_effect %in% colnames(meta_enriched))
-    stop(sprintf(
-      "Random effect column '%s' not found. Check subject_id_col.",
-      random_effect
-    ))
-
-  parsed <- .parse_fixed_formula(fixed_formula, meta_enriched)
-
-  # -- Filter baseline rows ----------------------------------
-  md <- meta_enriched
-  if (is_baseline_col %in% colnames(md)) {
-    md <- md[md[[is_baseline_col]] == FALSE, , drop = FALSE]
-    message(sprintf("Baseline samples excluded. N remaining = %d",
-                    nrow(md)))
+  p <- .prep_model_data(meta_enriched, metric, fixed_formula, random_effect,
+                        treatment_ref, treatment_col, is_baseline_col)
+  if (nrow(p$md) < 5) stop("Too few observations to fit an LMM.", call. = FALSE)
+  for (re in random_effect) {
+    n_lv <- length(unique(p$md[[re]]))
+    if (n_lv < 2 || n_lv >= nrow(p$md))
+      stop(sprintf(paste0("Random effect '%s' has %d groups for %d samples - it needs at ",
+                          "least 2 groups and fewer groups than samples (repeated samples ",
+                          "per group)."), re, n_lv, nrow(p$md)), call. = FALSE)
   }
 
-  # -- Set treatment reference level (only if treatment_col is actually
-  #    used somewhere in the formula) -----------------------------
-  if (treatment_col %in% colnames(md) &&
-      treatment_col %in% parsed$vars_used) {
-    md[[treatment_col]] <- stats::relevel(
-      factor(md[[treatment_col]]),
-      ref = treatment_ref
-    )
-  }
-
-  # -- Complete cases for all model variables --------------------
-  model_vars <- unique(c(metric, parsed$vars_used, random_effect))
-  cc         <- stats::complete.cases(md[, model_vars, drop = FALSE])
-
-  if (sum(!cc) > 0)
-    message(sprintf(
-      "%d row(s) dropped due to NA in model variables (e.g. MONA).",
-      sum(!cc)
-    ))
-
-  md <- md[cc, , drop = FALSE]
-
-  if (nrow(md) < 5)
-    stop("Too few observations after filtering to fit LMM.")
-
-  # -- Build formula -----------------------------------------------
-  # Every bare variable name (including each side of an interaction)
-  # is backtick-quoted, so column names with spaces never break
-  # as.formula() - see .build_quoted_fixed_rhs().
-  quoted_rhs <- .build_quoted_fixed_rhs(parsed$fml)
-  fml_str <- sprintf("`%s` ~ %s + (1|`%s`)", metric, quoted_rhs, random_effect)
-  fml <- tryCatch(
-    stats::as.formula(fml_str),
-    error = function(e)
-      stop(sprintf("Could not build model formula: %s\nFormula string: %s",
-                   e$message, fml_str), call. = FALSE)
-  )
-  message(sprintf("Fitting LMM: %s", fml_str))
-
-  # -- Fit model -------------------------------------------------
+  rand    <- paste(sprintf("(1|`%s`)", random_effect), collapse = " + ")
+  fml_str <- sprintf("`%s` ~ %s + %s", metric, p$rhs, rand)
+  message("Fitting LMM: ", fml_str)
   fit <- tryCatch(
-    lmerTest::lmer(fml, data = md, REML = FALSE),
-    error = function(e) {
-      stop(sprintf(
-        "LMM failed for metric '%s': %s\nFormula: %s",
-        metric, e$message, fml_str
-      ))
-    }
-  )
-
-  # -- Extract coefficients ----------------------------------------
-  sum_fit  <- summary(fit)
-  coef_tbl <- as.data.frame(sum_fit$coefficients)
-
-  colnames(coef_tbl) <- make.names(colnames(coef_tbl))
-  coef_tbl$Term      <- rownames(coef_tbl)
-  coef_tbl$Metric    <- metric
-  coef_tbl$Formula   <- fml_str
-
-  col_map <- c(
-    "Estimate"   = "Estimate",
-    "Std..Error" = "SE",
-    "df"         = "df",
-    "t.value"    = "t_value",
-    "Pr...t.."   = "p_value"
-  )
-  for (old in names(col_map)) {
-    if (old %in% colnames(coef_tbl))
-      colnames(coef_tbl)[colnames(coef_tbl) == old] <- col_map[old]
-  }
-
-  keep_cols <- intersect(
-    c("Metric", "Term", "Estimate", "SE", "df", "t_value",
-      "p_value", "Formula"),
-    colnames(coef_tbl)
-  )
-  coef_tbl <- coef_tbl[, keep_cols, drop = FALSE]
-  rownames(coef_tbl) <- NULL
-
-  if ("p_value" %in% colnames(coef_tbl)) {
-    coef_tbl$p_adjusted <- stats::p.adjust(
-      coef_tbl$p_value,
-      method = padj_method
-    )
-  }
-
-  coef_tbl
+    lmerTest::lmer(stats::as.formula(fml_str), data = p$md, REML = FALSE),
+    error = function(e)
+      stop(sprintf("LMM failed for '%s': %s", metric, conditionMessage(e)), call. = FALSE))
+  .coef_table(fit, metric, fml_str, padj_method)
 }
 
 # -- 4. run_alpha_lmm_all_metrics() --------------------------------------------
-
-#' Run LMM for all available alpha diversity metrics
+#' Fit the LMM for every alpha diversity metric
 #'
-#' Loops over Shannon, Simpson, Observed_ASVs, and Chao1 (any present
-#' in \code{meta_enriched}), fits a separate LMM for each, and returns
-#' a single combined data frame.
+#' Loops over every metric in \code{ALPHA_METRICS} present in
+#' \code{meta_enriched}. With no \code{random_effect} (\code{NULL} or
+#' \code{character(0)}) an ordinary linear model is fitted instead, for
+#' studies with one sample per animal. With \code{add_baseline = TRUE} each metric's own
+#' baseline value (\code{Baseline_<metric>}) is added as the first covariate
+#' when available. A cross-metric adjusted p-value is computed for the
+#' treatment terms chosen with \code{fdr_target}.
 #'
-#' For the crossover design, the function automatically detects
-#' and includes the corresponding baseline covariate column
-#' (e.g. \code{Baseline_Shannon} for the Shannon metric) if present
-#' in \code{meta_enriched}.
-#'
-#' @param meta_enriched Data frame from \code{pcoa_obj$meta_enriched}.
-#' @param fixed_effects Character vector of fixed effects to include
-#'   (excluding the auto-detected baseline covariate).
-#'   Default: \code{c("Timepoint", "Sequence", "Treatment")}.
-#' @param random_effect Subject ID column for random intercept
-#'   (default \code{"CatID"}).
-#' @param treatment_ref Reference level for treatment
-#'   (default \code{"CON"}).
-#' @param treatment_col Treatment column name (default \code{"Treatment"}).
-#' @param is_baseline_col Baseline flag column (default \code{"IsBaseline"}).
-#' @param padj_method p-value adjustment method (default \code{"BH"}).
-#' @return A combined data frame with one row per model term per metric,
-#'   with FDR correction applied across Treatment terms only.
+#' @inheritParams run_alpha_lmm
+#' @param add_baseline Logical; prepend \code{Baseline_<metric>} when present.
+#' @param fdr_target Which treatment terms get the cross-metric adjustment:
+#'   \code{"main"} (treatment main effects, default), \code{"interaction"}
+#'   (interaction terms involving the treatment) or \code{"auto"} (the
+#'   interaction when the model has one, otherwise the main effect). Terms are matched exactly
+#'   on the treatment column's levels, so another column whose name merely
+#'   starts the same (e.g. \code{Group2} next to \code{Group}) is not picked up.
+#' @param fdr_term_pattern Optional Perl regex that overrides
+#'   \code{fdr_target} for custom selections.
+#' @return One combined data frame, one row per term per metric. Besides
+#'   \code{p_adjusted} (within one metric's model) it carries two
+#'   cross-metric adjustments of the treatment terms, identical when the
+#'   treatment has two groups:
+#'   \describe{
+#'     \item{p_adj_across_metrics}{each comparison adjusted over the metrics
+#'       only (e.g. the MUO-vs-Control p-values of all metrics).}
+#'     \item{p_adj_across_metrics_and_groups}{every treatment term of every
+#'       metric adjusted as one family. Usually the larger p-value, though
+#'       Benjamini-Hochberg is not monotone in family size, so not always.}
+#'   }
 #' @export
-run_alpha_lmm_all_metrics <- function(
-    meta_enriched,
-    fixed_formula   = "Timepoint + Sequence + Treatment",
-    random_effect   = "CatID",
-    treatment_ref   = "CON",
-    treatment_col   = "Treatment",
-    is_baseline_col = "IsBaseline",
-    padj_method     = "BH") {
+run_alpha_lmm_all_metrics <- function(meta_enriched,
+                                      fixed_formula    = "Timepoint + Sequence + Treatment",
+                                      random_effect    = "CatID",
+                                      treatment_ref    = "CON",
+                                      treatment_col    = "Treatment",
+                                      is_baseline_col  = "IsBaseline",
+                                      padj_method      = "BH",
+                                      add_baseline     = TRUE,
+                                      fdr_target       = c("main", "interaction", "auto"),
+                                      fdr_term_pattern = NULL) {
+  fdr_target <- match.arg(fdr_target)
+  metrics <- intersect(ALPHA_METRICS, colnames(meta_enriched))
+  empty   <- metrics[vapply(metrics, function(m) all(is.na(meta_enriched[[m]])), logical(1))]
+  if (length(empty))
+    message("Skipping metric(s) with no values (e.g. Chao1 needs raw counts): ",
+            paste(empty, collapse = ", "))
+  metrics <- setdiff(metrics, empty)
+  if (!length(metrics))
+    stop("No alpha diversity metrics found. Expected: ",
+         paste(ALPHA_METRICS, collapse = ", "), call. = FALSE)
+  .fit_models_all(meta_enriched, metrics, fixed_formula, random_effect, treatment_ref,
+                  treatment_col, is_baseline_col, padj_method, add_baseline,
+                  fdr_target, fdr_term_pattern)
+}
 
-  avail_metrics <- intersect(ALPHA_METRICS, colnames(meta_enriched))
+# -- Internal engine: one model per response column + cross-response adjustment --
+# Shared by alpha diversity (responses = metrics) and targeted measurements
+# (responses = the features the user selected). Returns the alpha-style table
+# (column "Metric" = response name).
+.fit_models_all <- function(meta_enriched, metrics, fixed_formula, random_effect,
+                            treatment_ref, treatment_col, is_baseline_col,
+                            padj_method = "BH", add_baseline = TRUE,
+                            fdr_target = "main", fdr_term_pattern = NULL) {
+  random_effect <- unique(random_effect[!is.na(random_effect) & nzchar(random_effect)])
+  mixed   <- length(random_effect) > 0
+  if (!mixed)
+    message("No random effect chosen: fitting an ordinary linear model ",
+            "(appropriate when every animal has one sample).")
 
-  if (length(avail_metrics) == 0)
-    stop(paste0(
-      "No alpha diversity metrics found in meta_enriched.\n",
-      "Expected one or more of: ",
-      paste(ALPHA_METRICS, collapse = ", ")
-    ))
-
-  message(sprintf(
-    "Running LMM for %d metric(s): %s",
-    length(avail_metrics),
-    paste(avail_metrics, collapse = ", ")
-  ))
-
-  results <- lapply(avail_metrics, function(metric) {
-
-    baseline_col <- paste0("Baseline_", metric)
-
-    fml_for_this_metric <- if (baseline_col %in% colnames(meta_enriched)) {
-      # Prepend baseline covariate so it's partialled out first
-      paste0(baseline_col, " + ", fixed_formula)
-    } else {
-      warning(sprintf(
-        "Baseline covariate '%s' not found - fitting without it.",
-        baseline_col
-      ))
-      fixed_formula
-    }
-
+  out <- do.call(rbind, lapply(metrics, function(metric) {
+    bcol <- paste0("Baseline_", metric)
+    fml  <- if (add_baseline && bcol %in% colnames(meta_enriched))
+      paste(bcol, "+", fixed_formula) else fixed_formula
     tryCatch(
-      run_alpha_lmm(
-        meta_enriched   = meta_enriched,
-        metric          = metric,
-        fixed_formula   = fml_for_this_metric,
-        random_effect   = random_effect,
-        treatment_ref   = treatment_ref,
-        treatment_col   = treatment_col,
-        is_baseline_col = is_baseline_col,
-        padj_method     = padj_method
-      ),
+      if (mixed)
+        run_alpha_lmm(meta_enriched, metric, fml, random_effect, treatment_ref,
+                      treatment_col, is_baseline_col, padj_method)
+      else
+        cbind(run_alpha_lm_simple(meta_enriched, metric, fml, treatment_ref,
+                                  treatment_col, is_baseline_col, padj_method),
+              df = NA_real_)[, c("Metric", "Term", "Estimate", "SE", "df", "t_value",
+                                 "p_value", "p_adjusted", "N", "Formula")],
       error = function(e) {
-        warning(sprintf("LMM failed for '%s': %s", metric, e$message))
-        data.frame(
-          Metric      = metric,
-          Term        = "ERROR",
-          Estimate    = NA_real_,
-          SE          = NA_real_,
-          df          = NA_real_,
-          t_value     = NA_real_,
-          p_value     = NA_real_,
-          p_adjusted  = NA_real_,
-          Formula     = NA_character_,
-          stringsAsFactors = FALSE
-        )
-      }
-    )
-  })
+        warning(conditionMessage(e), call. = FALSE)
+        data.frame(Metric = metric, Term = "ERROR", Estimate = NA_real_,
+                   SE = NA_real_, df = NA_real_, t_value = NA_real_,
+                   p_value = NA_real_, p_adjusted = NA_real_, N = NA_integer_,
+                   Formula = conditionMessage(e))
+      })
+  }))
 
-  out <- do.call(rbind, results)
-
-  # -- Cross-metric FDR: correct Treatment MAIN-EFFECT p-values across
-  # metrics only - excludes interaction terms like "TreatmentA:TimepointB"
-  # so they aren't mixed into the same adjustment set as the main effect.
-  treat_pattern <- paste0("^", treatment_col)
-  treat_rows    <- grepl(treat_pattern, out$Term) & !grepl(":", out$Term)
-
-  if (any(treat_rows, na.rm = TRUE)) {
-    out$p_adjusted_cross_metric        <- NA_real_
-    out$p_adjusted_cross_metric[treat_rows] <- stats::p.adjust(
-      out$p_value[treat_rows],
-      method = padj_method
-    )
-    message(sprintf(
-      "Cross-metric FDR applied to %d Treatment term(s) using %s",
-      sum(treat_rows), padj_method
-    ))
+  if (!is.null(fdr_term_pattern)) {
+    target <- grepl(fdr_term_pattern, out$Term, perl = TRUE)
+  } else {
+    lv    <- meta_enriched[[treatment_col]][!.is_baseline(meta_enriched, is_baseline_col)]
+    tset  <- paste0(treatment_col, unique(as.character(lv[!is.na(lv)])))
+    comp  <- strsplit(gsub("`", "", out$Term), ":", fixed = TRUE)
+    has_t <- vapply(comp, function(x) any(x %in% tset), logical(1))
+    if (fdr_target == "auto")
+      fdr_target <- if (any(has_t & lengths(comp) > 1)) "interaction" else "main"
+    target <- has_t & (if (fdr_target == "interaction") lengths(comp) > 1 else lengths(comp) == 1)
   }
+  target <- target & out$Term != "ERROR" & !is.na(out$p_value)
 
+  # Two adjustments across metrics, because both are defensible and they differ
+  # only when the treatment has 3+ groups (i.e. several comparisons per metric):
+  #   p_adj_across_metrics             - each comparison is its own family: the
+  #     same term (e.g. GroupMUO) is adjusted over the metrics only.
+  #   p_adj_across_metrics_and_groups  - one family for everything: every
+  #     treatment term of every metric is adjusted together.
+  out$p_adj_across_metrics <- NA_real_
+  if (any(target))
+    out$p_adj_across_metrics[target] <- stats::ave(
+      out$p_value[target], out$Term[target],
+      FUN = function(p) stats::p.adjust(p, method = padj_method))
+  out$p_adj_across_metrics_and_groups <- NA_real_
+  out$p_adj_across_metrics_and_groups[target] <-
+    stats::p.adjust(out$p_value[target], method = padj_method)
+
+  attr(out, "fdr_target") <- if (is.null(fdr_term_pattern)) fdr_target else "custom"
+  attr(out, "fdr_terms")  <- sort(unique(out$Term[target]))
+  if (!any(target))
+    warning(sprintf("No treatment %s term found for '%s'; cross-metric columns left empty.",
+                    if (fdr_target == "interaction") "interaction" else "main-effect",
+                    treatment_col), call. = FALSE)
   rownames(out) <- NULL
   out
 }
-# -- run_alpha_lmm_interaction_all() ------------------------------------------
-#' Fit interaction LMMs for all alpha metrics WITHOUT baseline-covariate injection
+
+#' Interaction LMMs for all metrics without a baseline covariate
 #'
-#' Unlike run_alpha_lmm_all_metrics(), this wrapper does NOT prepend a
-#' Baseline_<metric> covariate. It fits the same user-supplied fixed-effects
-#' formula (typically an interaction model such as "Treatment * Timepoint")
-#' to every available metric, then applies cross-metric FDR correction to a
-#' user-chosen term of interest (default: the Treatment:Timepoint interaction).
+#' Shortcut for \code{run_alpha_lmm_all_metrics(add_baseline = FALSE,
+#' fdr_target = "interaction")}. Kept so existing scripts keep working.
 #'
-#' Intended for a simple two-timepoint parallel design where day-1 (initial)
-#' IS the baseline and is modelled directly via the Timepoint factor, so no
-#' separate ANCOVA baseline covariate is wanted.
-#'
-#' @param meta_enriched Data frame from pcoa_obj$meta_enriched.
-#' @param fixed_formula Fixed-effects fragment (no ~, no random term).
-#'   Default: "Treatment * Timepoint".
-#' @param random_effect Subject ID column for the random intercept
-#'   (default "CatID").
-#' @param treatment_ref Reference level for treatment (default "CON").
-#' @param treatment_col Treatment column name (default "Treatment").
-#' @param is_baseline_col Baseline flag column (default "IsBaseline").
-#' @param padj_method p-value adjustment method (default "BH").
-#' @param fdr_term_pattern Regex identifying the term(s) to FDR-correct
-#'   across metrics. Default "(?=.*Treatment)(?=.*:)" (perl) = any term that
-#'   contains "Treatment" AND a colon, i.e. the treatment interaction.
-#' @return Combined data frame: one row per model term per metric, plus a
-#'   p_adjusted_cross_metric column populated for the targeted term.
+#' @inheritParams run_alpha_lmm_all_metrics
+#' @return See \code{run_alpha_lmm_all_metrics()}.
 #' @export
-run_alpha_lmm_interaction_all <- function(
-    meta_enriched,
-    fixed_formula    = "Treatment * Timepoint",
-    random_effect    = "CatID",
-    treatment_ref    = "CON",
-    treatment_col    = "Treatment",
-    is_baseline_col  = "IsBaseline",
-    padj_method      = "BH",
-    fdr_term_pattern = "(?=.*Treatment)(?=.*:)") {
-
-  # -- Discover available metrics (uses the same ALPHA_METRICS constant) ----
-  avail_metrics <- intersect(ALPHA_METRICS, colnames(meta_enriched))
-  if (length(avail_metrics) == 0)
-    stop(paste0(
-      "No alpha diversity metrics found in meta_enriched.\n",
-      "Expected one or more of: ",
-      paste(ALPHA_METRICS, collapse = ", ")
-    ))
-
-  message(sprintf(
-    "Fitting interaction LMM (no baseline covariate) for %d metric(s): %s",
-    length(avail_metrics), paste(avail_metrics, collapse = ", ")
-  ))
-  message(sprintf("Fixed-effects formula: %s", fixed_formula))
-
-  # -- Fit one model per metric, reusing the vetted run_alpha_lmm() ---------
-  results <- lapply(avail_metrics, function(metric) {
-    tryCatch(
-      run_alpha_lmm(
-        meta_enriched   = meta_enriched,
-        metric          = metric,
-        fixed_formula   = fixed_formula,   # NOTE: passed through unchanged
-        random_effect   = random_effect,
-        treatment_ref   = treatment_ref,
-        treatment_col   = treatment_col,
-        is_baseline_col = is_baseline_col,
-        padj_method     = padj_method
-      ),
-      error = function(e) {
-        warning(sprintf("LMM failed for '%s': %s", metric, e$message))
-        data.frame(
-          Metric = metric, Term = "ERROR",
-          Estimate = NA_real_, SE = NA_real_, df = NA_real_,
-          t_value = NA_real_, p_value = NA_real_, p_adjusted = NA_real_,
-          Formula = NA_character_, stringsAsFactors = FALSE
-        )
-      }
-    )
-  })
-
-  out <- do.call(rbind, results)
-
-  # -- Cross-metric FDR on the interaction term(s) only ---------------------
-  # perl=TRUE so the look-ahead pattern "(?=.*Treatment)(?=.*:)" works:
-  # it matches any term that contains BOTH "Treatment" and a colon,
-  # e.g. "TreatmentBG:TimepointFinal".
-  target_rows <- grepl(fdr_term_pattern, out$Term, perl = TRUE) &
-    out$Term != "ERROR"
-
-  out$p_adjusted_cross_metric <- NA_real_
-  if (any(target_rows, na.rm = TRUE)) {
-    out$p_adjusted_cross_metric[target_rows] <- stats::p.adjust(
-      out$p_value[target_rows],
-      method = padj_method
-    )
-    message(sprintf(
-      "Cross-metric FDR applied to %d interaction term(s) using %s.",
-      sum(target_rows), padj_method
-    ))
-  } else {
-    warning(paste0(
-      "No interaction terms matched pattern '", fdr_term_pattern,
-      "'. Cross-metric FDR column left as NA.\n",
-      "Check your fixed_formula actually contains an interaction, and that ",
-      "term names look like e.g. 'TreatmentBG:TimepointFinal'."
-    ))
-  }
-
-  rownames(out) <- NULL
-  out
+run_alpha_lmm_interaction_all <- function(meta_enriched,
+                                          fixed_formula    = "Treatment * Timepoint",
+                                          random_effect    = "CatID",
+                                          treatment_ref    = "CON",
+                                          treatment_col    = "Treatment",
+                                          is_baseline_col  = "IsBaseline",
+                                          padj_method      = "BH",
+                                          fdr_term_pattern = NULL) {
+  run_alpha_lmm_all_metrics(meta_enriched, fixed_formula, random_effect,
+                            treatment_ref, treatment_col, is_baseline_col,
+                            padj_method, add_baseline = FALSE,
+                            fdr_target = "interaction",
+                            fdr_term_pattern = fdr_term_pattern)
 }
 
 # -- 5. run_alpha_lm_simple() -------------------------------------------------
-
-#' Simple linear model for alpha diversity (no random effects)
+#' Linear model for alpha diversity (no random effects)
 #'
-#' Fallback when only one observation per subject exists, or for
-#' exploratory analysis without mixed modelling.
-#' For the crossover design, \code{run_alpha_lmm()} is preferred.
+#' Fallback when each subject has a single observation.
 #'
 #' @inheritParams run_alpha_lmm
 #' @return A data frame with one row per model term.
-#' @importFrom stats lm p.adjust as.formula relevel complete.cases
 #' @export
-run_alpha_lm_simple <- function(
-    meta_enriched,
-    metric          = "Shannon",
-    fixed_formula   = "Treatment + Timepoint + Sequence",
-    treatment_ref   = "CON",
-    treatment_col   = "Treatment",
-    is_baseline_col = "IsBaseline",
-    padj_method     = "BH") {
-
-  if (!metric %in% colnames(meta_enriched))
-    stop(sprintf("Metric '%s' not found.", metric))
-
-  parsed <- .parse_fixed_formula(fixed_formula, meta_enriched)
-
-  md <- meta_enriched
-  if (is_baseline_col %in% colnames(md))
-    md <- md[md[[is_baseline_col]] == FALSE, , drop = FALSE]
-
-  if (treatment_col %in% colnames(md) &&
-      treatment_col %in% parsed$vars_used)
-    md[[treatment_col]] <- stats::relevel(
-      factor(md[[treatment_col]]), ref = treatment_ref
-    )
-
-  model_vars <- unique(c(metric, parsed$vars_used))
-  cc         <- stats::complete.cases(md[, model_vars, drop = FALSE])
-  md         <- md[cc, , drop = FALSE]
-
-  quoted_rhs <- .build_quoted_fixed_rhs(parsed$fml)
-  fml_str <- sprintf("`%s` ~ %s", metric, quoted_rhs)
-  fml     <- stats::as.formula(fml_str)
-  message(sprintf("Fitting LM: %s", fml_str))
-
-  fit     <- stats::lm(fml, data = md)
-  coef_tbl <- as.data.frame(summary(fit)$coefficients)
-
-  colnames(coef_tbl) <- c("Estimate", "SE", "t_value", "p_value")
-  coef_tbl$Term      <- rownames(coef_tbl)
-  coef_tbl$Metric    <- metric
-  coef_tbl$Formula   <- fml_str
-  coef_tbl$p_adjusted <- stats::p.adjust(coef_tbl$p_value,
-                                         method = padj_method)
-  rownames(coef_tbl) <- NULL
-
-  coef_tbl[, c("Metric", "Term", "Estimate", "SE",
-               "t_value", "p_value", "p_adjusted", "Formula")]
+run_alpha_lm_simple <- function(meta_enriched,
+                                metric          = "Shannon",
+                                fixed_formula   = "Treatment + Timepoint + Sequence",
+                                treatment_ref   = "CON",
+                                treatment_col   = "Treatment",
+                                is_baseline_col = "IsBaseline",
+                                padj_method     = "BH") {
+  p <- .prep_model_data(meta_enriched, metric, fixed_formula, NULL,
+                        treatment_ref, treatment_col, is_baseline_col)
+  if (nrow(p$md) < 5) stop("Too few observations to fit a linear model.", call. = FALSE)
+  fml_str <- sprintf("`%s` ~ %s", metric, p$rhs)
+  message("Fitting LM: ", fml_str)
+  .coef_table(stats::lm(stats::as.formula(fml_str), data = p$md),
+              metric, fml_str, padj_method)
 }

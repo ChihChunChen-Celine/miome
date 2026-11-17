@@ -13,37 +13,24 @@ prepare_all(
 )
 }
 \arguments{
-\item{otu_path}{Path to OTU table (.tsv, taxa as rows).}
+\item{otu_path}{Path to OTU/species table (.tsv, taxa as rows, samples as
+columns). QIIME 2, MetaPhlAn and plain tables are accepted.}
 
-\item{meta_path}{Path to mapping file (.csv, first column = Sample ID).}
+\item{meta_path}{Path to mapping file (.csv, first column = Sample ID), or a
+data frame with Sample IDs as row names.}
 
 \item{config}{A \code{pcoa_config()} object.}
 
-\item{dist_method}{Distance method (default \code{"bray"}).
-Use \code{"unifrac_weighted"} or \code{"unifrac_unweighted"} together
-with \code{precomputed_dist_path}.}
+\item{dist_method}{Distance method for the baseline PCoA.}
 
-\item{precomputed_dist_path}{Optional path to a precomputed distance
-matrix (.qza artifact or plain .tsv). Required when \code{dist_method}
-is a UniFrac variant.}
+\item{precomputed_dist_path}{Optional precomputed distance matrix (.qza or
+.tsv); required for UniFrac.}
 }
 \value{
-A \code{pcoa_obj} with \code{$meta_enriched} containing all
-  computed covariates, ready for beta diversity statistics and LMM.
+A \code{pcoa_obj} whose \code{$meta} / \code{$meta_enriched} hold
+  the alpha metrics and baseline covariates.
 }
 \description{
-Chains together in sequence:
-\enumerate{
-  \item \code{compute_alpha_diversity()} - Shannon, Simpson, Pielou,
-    Observed ASVs, Chao1
-  \item \code{prepare_baseline_covariates()} - Baseline_Shannon,
-    Baseline_Observed, Baseline_PC1, Baseline_PC2 (only if the
-    \code{is_baseline_col} column is present in the metadata)
-  \item \code{prepare_pcoa()} - full PCoA on all samples
-}
-}
-\details{
-The OTU table is loaded once per sub-function via the shared
-\code{.load_otu_meta()} helper; a temporary CSV is used to pass the
-alpha-enriched metadata between steps without re-reading the raw files.
+Reads the files once, then computes alpha diversity, baseline covariates
+(when the baseline column exists) and the full PCoA on all samples.
 }

@@ -1,0 +1,13 @@
+﻿Lab NO.,Sample,Group,Sex,Sex,BW (kg),"Age at presentation
+(years)",Dry Matter %,Note
+SEQ_001,D01,Control,1,FS,14.7,12,21.09%,"ok, fine"
+SEQ_002,D02,Control,2,MC ,26.4,10,26.39%,
+SEQ_003,D03,Control,1,FS,5.1,3,42.95%,
+SEQ_004,D04,Control,2,MC ,25.5,5,44.70%,
+SEQ_005,D05,Control,1,FS,19.2,8,36.66%,
+SEQ_006,D06,Case,2,MC ,27.2,1,33.37%,
+SEQ_007,D07,Case,1,FS,11.2,7,22.71%,
+SEQ_008,D08,Case,2,MC ,29.0,4,39.47%,
+SEQ_009,D09,Case,1,FS,6.9,11,32.37%,
+SEQ_010,D10,Case,2,MC ,3.1,6,26.75%,
+,,,,,,,,

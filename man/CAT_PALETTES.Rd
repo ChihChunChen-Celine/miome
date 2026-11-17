@@ -7,5 +7,6 @@
 CAT_PALETTES
 }
 \description{
-Categorical colour palette options (for grouping variables)
+\code{"Miome"} is the package's own palette (see \code{MIOME_PALETTE});
+the others are RColorBrewer palettes.
 }

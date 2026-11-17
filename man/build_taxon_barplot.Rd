@@ -18,34 +18,30 @@ build_taxon_barplot(
 )
 }
 \arguments{
-\item{taxon_data}{Data frame returned by
-\code{compute_taxonomy_barplot_data()}.}
+\item{taxon_data}{Data frame from \code{compute_taxonomy_barplot_data()}.}
 
-\item{level}{Taxonomic level label used in the plot title.}
+\item{level}{Taxonomic level label for the title.}
 
 \item{group_var}{Metadata column used for faceting.}
 
-\item{palette}{RColorBrewer palette name (categorical).}
+\item{palette}{Palette name, or your own colours: a named vector such as
+\code{c(Control = "#1B9E77", MUO = "#D95F02")} fixes the colour of those
+groups (the others keep the Miome palette); for a numeric variable an
+unnamed vector such as \code{c("#2F6FB0", "#F2F2F2", "#B8456B")} is a
+gradient from low to high.}
 
-\item{rev_pal}{Logical — reverse the palette?}
+\item{rev_pal}{Logical; reverse the palette?}
 
-\item{top_n}{Number of top taxa shown (for subtitle).}
+\item{top_n}{Number of top taxa (for the title).}
 
-\item{exclude_baseline}{Logical — remove baseline samples?}
+\item{exclude_baseline}{Logical; remove baseline samples?}
 
-\item{is_baseline_col}{Column name of the baseline flag.}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{x_label_var}{Metadata column whose values are shown as the
-x-axis tick labels (default \code{"SampleID"} — the raw sample
-ID, matching the previous fixed behaviour). Bars themselves are
-always keyed by the unique \code{SampleID}, so choosing a column
-that isn't unique per sample (e.g. \code{"Timepoint"}) will just
-show repeated tick text for different bars, not merge them.}
+\item{x_label_var}{Column shown as x-axis tick labels (bars stay keyed by
+\code{SampleID}).}
 
-\item{x_order_var}{Metadata column used to order samples along the
-x-axis within each facet (ties broken by \code{SampleID} for a
-stable order). Default \code{"SampleID"} sorts alphabetically,
-matching the previous fixed behaviour.}
+\item{x_order_var}{Column used to order bars (ties broken by SampleID).}
 }
 \value{
 A \code{ggplot} object.

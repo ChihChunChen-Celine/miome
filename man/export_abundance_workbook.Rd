@@ -2,59 +2,44 @@
 % Please edit documentation in R/summarize_abundance.R
 \name{export_abundance_workbook}
 \alias{export_abundance_workbook}
-\title{Read an OTU/taxonomy table + metadata, summarize abundance, and export
-an Excel workbook (Counts / Relative Abundances / Metadata sheets)}
+\title{Summarize abundance and export a Counts / Relative Abundances / Metadata
+workbook}
 \usage{
 export_abundance_workbook(
   counts_path,
   metadata_path,
   group_column = "Treatment",
   id_column = "Internal_ID",
-  remove_first_row = TRUE,
+  remove_first_row = "auto",
   pct_tol = 1,
   summary_csv = NULL,
   workbook_path = "species_counts_relabun.xlsx"
 )
 }
 \arguments{
-\item{counts_path}{Path to the taxa-by-level counts \code{.tsv}
-(e.g. a QIIME2 \code{L7-species-table.tsv} export). Read with
-\code{skip = 1, row.names = 1}.}
+\item{counts_path}{Taxa-by-level counts \code{.tsv} (e.g. QIIME 2
+\code{L7} export); comment lines and a \code{#OTU ID} header are handled.}
 
-\item{metadata_path}{Path to the tab-delimited mapping file. Must
-contain a \code{sampleid} column matching the counts table's sample
-columns, plus \code{group_column} and \code{id_column}.}
+\item{metadata_path}{Tab-delimited mapping file with a \code{sampleid}
+column, \code{group_column} and \code{id_column}.}
 
-\item{group_column}{Metadata column to group by in the summary
-(default \code{"Treatment"}).}
+\item{group_column}{Metadata column to group by in the summary.}
 
-\item{id_column}{Metadata column used as a human-readable sample
-label in the Excel sheets (default \code{"Internal_ID"}).}
+\item{id_column}{Metadata column used as a readable sample label.}
 
-\item{remove_first_row}{Logical; drop the first row of the counts table
-before processing (default \code{TRUE}).}
+\item{remove_first_row}{See \code{summarize_abundance()}.}
 
-\item{pct_tol}{Tolerance (percentage points) around 100 for a
-sample column to be treated as already-percent rather than raw counts
-(default 1).}
+\item{pct_tol}{Kept for compatibility (unused).}
 
-\item{summary_csv}{Optional path to also write the group summary as a
-CSV. \code{NULL} (default) skips writing.}
+\item{summary_csv}{Optional CSV path for the group summary.}
 
-\item{workbook_path}{Path for the output \code{.xlsx} workbook
-(default \code{"species_counts_relabun.xlsx"}).}
+\item{workbook_path}{Output \code{.xlsx} path.}
 }
 \value{
-Invisibly, a list with \code{summary}, \code{relative_abundance},
-  and \code{metadata} data frames (the same content written to
-  \code{workbook_path}).
+Invisibly, a list with \code{summary}, \code{relative_abundance}
+  and \code{metadata}.
 }
 \description{
-This is the interactive entry point for the abundance-summary workflow.
-It performs the file reads that used to run automatically when this
-file was sourced - which is what broke \code{devtools::load_all()} /
-\code{devtools::document()}, since files under \code{R/} must define
-functions only and must never read files or execute analysis code at
-the top level. Call this function explicitly with your own file paths
-after loading the package.
+Summarize abundance and export a Counts / Relative Abundances / Metadata
+workbook
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/export.r
 \name{export_taxon_barplot_tiff}
 \alias{export_taxon_barplot_tiff}
-\title{Save a taxonomy bar plot to a TIFF file}
+\title{Export a taxonomy bar plot as a TIFF}
 \usage{
 export_taxon_barplot_tiff(
   taxon_data,
@@ -26,31 +26,36 @@ export_taxon_barplot_tiff(
 
 \item{outfile}{Output file path.}
 
-\item{level}{Taxonomic level label.}
+\item{level}{Taxonomic level label for the title.}
 
 \item{group_var}{Metadata column used for faceting.}
 
-\item{palette}{Colour palette name.}
+\item{palette}{Palette name, or your own colours: a named vector such as
+\code{c(Control = "#1B9E77", MUO = "#D95F02")} fixes the colour of those
+groups (the others keep the Miome palette); for a numeric variable an
+unnamed vector such as \code{c("#2F6FB0", "#F2F2F2", "#B8456B")} is a
+gradient from low to high.}
 
-\item{rev_pal}{Logical - reverse palette?}
+\item{rev_pal}{Logical; reverse the palette?}
 
-\item{top_n}{Number of top taxa.}
+\item{top_n}{Number of top taxa (for the title).}
 
-\item{exclude_baseline}{Logical - remove baseline samples?}
+\item{exclude_baseline}{Logical; remove baseline samples?}
 
-\item{is_baseline_col}{Baseline flag column name.}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{x_label_var}{Metadata column shown as x-axis tick labels
-(default \code{"SampleID"}). See \code{\link{build_taxon_barplot}}.}
+\item{x_label_var}{Column shown as x-axis tick labels (bars stay keyed by
+\code{SampleID}).}
 
-\item{x_order_var}{Metadata column used to order bars along the
-x-axis (default \code{"SampleID"}). See
-\code{\link{build_taxon_barplot}}.}
+\item{x_order_var}{Column used to order bars (ties broken by SampleID).}
 
-\item{width, height}{Plot dimensions in inches (defaults: 14  8).}
+\item{width, height}{Size in inches.}
 
-\item{dpi}{Resolution (default 300).}
+\item{dpi}{Resolution.}
+}
+\value{
+Invisibly, \code{outfile}.
 }
 \description{
-Save a taxonomy bar plot to a TIFF file
+Export a taxonomy bar plot as a TIFF
 }

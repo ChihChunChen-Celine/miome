@@ -15,25 +15,25 @@ run_pairwise_test(
 )
 }
 \arguments{
-\item{obj}{A \code{pcoa_obj} from \code{prepare_pcoa()}.}
+\item{obj}{A \code{pcoa_obj} from \code{prepare_all()} / \code{prepare_pcoa()}.}
 
 \item{v}{Primary grouping variable (metadata column).}
 
-\item{method}{Either \code{"permanova"} or \code{"anosim"}.}
+\item{method}{\code{"permanova"} or \code{"anosim"}.}
 
-\item{covariates}{Character vector of covariate column names to add
-before \code{v} in the PERMANOVA formula. Ignored for ANOSIM.}
+\item{covariates}{Covariate columns entered before \code{v} in the
+PERMANOVA model. Ignored for ANOSIM.}
 
-\item{strata}{Metadata column for restricted permutations
-(e.g. \code{"CatID"} for crossover design). \code{NULL} = unrestricted.}
+\item{strata}{Column for restricted permutations (e.g. a subject ID), or
+\code{NULL}.}
 
-\item{permutations}{Number of permutations (default 999).}
+\item{permutations}{Number of permutations.}
 
-\item{exclude_baseline}{Logical; exclude \code{IsBaseline == TRUE} rows.}
+\item{exclude_baseline}{Logical; drop baseline samples first.}
 }
 \value{
-A data frame with pairwise results and BH-adjusted p-values.
+A data frame with one row per pair of groups.
 }
 \description{
-Run pairwise PERMANOVA or ANOSIM with p-value adjustment
+The adjustment method is taken from \code{obj$config$padj_method}.
 }

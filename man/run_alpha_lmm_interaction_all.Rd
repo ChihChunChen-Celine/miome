@@ -2,7 +2,7 @@
 % Please edit documentation in R/stats.R
 \name{run_alpha_lmm_interaction_all}
 \alias{run_alpha_lmm_interaction_all}
-\title{Fit interaction LMMs for all alpha metrics WITHOUT baseline-covariate injection}
+\title{Interaction LMMs for all metrics without a baseline covariate}
 \usage{
 run_alpha_lmm_interaction_all(
   meta_enriched,
@@ -12,43 +12,36 @@ run_alpha_lmm_interaction_all(
   treatment_col = "Treatment",
   is_baseline_col = "IsBaseline",
   padj_method = "BH",
-  fdr_term_pattern = "(?=.*Treatment)(?=.*:)"
+  fdr_term_pattern = NULL
 )
 }
 \arguments{
-\item{meta_enriched}{Data frame from pcoa_obj$meta_enriched.}
+\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.}
 
-\item{fixed_formula}{Fixed-effects fragment (no ~, no random term).
-Default: "Treatment * Timepoint".}
+\item{fixed_formula}{Fixed-effects formula without \code{~} or random
+effect. Backtick-quote names with spaces.}
 
-\item{random_effect}{Subject ID column for the random intercept
-(default "CatID").}
+\item{random_effect}{One or more columns, each added as its own random
+intercept, e.g. \code{c("CatID", "Litter")} gives
+\code{(1|CatID) + (1|Litter)}. Nested designs work as crossed terms as
+long as IDs are unique across groups (e.g. litter "L1" is never reused in
+another house).}
 
-\item{treatment_ref}{Reference level for treatment (default "CON").}
+\item{treatment_ref}{Reference level of the treatment column.}
 
-\item{treatment_col}{Treatment column name (default "Treatment").}
+\item{treatment_col}{Treatment column name.}
 
-\item{is_baseline_col}{Baseline flag column (default "IsBaseline").}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{padj_method}{p-value adjustment method (default "BH").}
+\item{padj_method}{p-value adjustment method for \code{p_adjusted}.}
 
-\item{fdr_term_pattern}{Regex identifying the term(s) to FDR-correct
-across metrics. Default "(?=.*Treatment)(?=.*:)" (perl) = any term that
-contains "Treatment" AND a colon, i.e. the treatment interaction.}
+\item{fdr_term_pattern}{Optional Perl regex that overrides
+\code{fdr_target} for custom selections.}
 }
 \value{
-Combined data frame: one row per model term per metric, plus a
-  p_adjusted_cross_metric column populated for the targeted term.
+See \code{run_alpha_lmm_all_metrics()}.
 }
 \description{
-Unlike run_alpha_lmm_all_metrics(), this wrapper does NOT prepend a
-Baseline_<metric> covariate. It fits the same user-supplied fixed-effects
-formula (typically an interaction model such as "Treatment * Timepoint")
-to every available metric, then applies cross-metric FDR correction to a
-user-chosen term of interest (default: the Treatment:Timepoint interaction).
-}
-\details{
-Intended for a simple two-timepoint parallel design where day-1 (initial)
-IS the baseline and is modelled directly via the Timepoint factor, so no
-separate ANCOVA baseline covariate is wanted.
+Shortcut for \code{run_alpha_lmm_all_metrics(add_baseline = FALSE,
+fdr_target = "interaction")}. Kept so existing scripts keep working.
 }

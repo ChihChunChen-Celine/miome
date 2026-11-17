@@ -2,8 +2,7 @@
 % Please edit documentation in R/plots.r
 \name{build_alpha_scatter}
 \alias{build_alpha_scatter}
-\title{Build an alpha diversity boxplot + jitter scatter with optional
-paired lines and grouping options}
+\title{Alpha diversity boxplot with jittered points and optional paired lines}
 \usage{
 build_alpha_scatter(
   meta_enriched,
@@ -17,47 +16,46 @@ build_alpha_scatter(
   is_baseline_col = "IsBaseline",
   facet_var = NULL,
   marker_size = 3,
-  marker_alpha = 0.85
+  marker_alpha = 0.85,
+  title = NULL,
+  y_label = NULL
 )
 }
 \arguments{
-\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.
-Must contain alpha diversity columns (Shannon, Simpson, etc.) (data.R).}
+\item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.}
 
-\item{metric}{Alpha diversity column to plot (e.g. \code{"Shannon"}).}
+\item{metric}{Alpha diversity column to plot.}
 
-\item{x_var}{Metadata column for x axis grouping
-(e.g. \code{"Treatment"}).}
+\item{x_var}{Column for x-axis groups.}
 
-\item{color_var}{Metadata column for point colour
-(e.g. \code{"Timepoint"}).}
+\item{color_var}{Column for point colour.}
 
-\item{palette}{RColorBrewer categorical palette.}
+\item{palette}{Palette name, or your own colours: a named vector such as
+\code{c(Control = "#1B9E77", MUO = "#D95F02")} fixes the colour of those
+groups (the others keep the Miome palette); for a numeric variable an
+unnamed vector such as \code{c("#2F6FB0", "#F2F2F2", "#B8456B")} is a
+gradient from low to high.}
 
 \item{rev_pal}{Logical; reverse palette?}
 
-\item{connect_by}{Optional column to draw within-subject lines
-(e.g. \code{"CatID"} for crossover). Set \code{NULL} to disable.}
+\item{connect_by}{Optional column for within-subject lines, or \code{NULL}.}
 
-\item{exclude_baseline}{Logical; if \code{TRUE} (default) and the
-\code{is_baseline_col} column exists, baseline rows are removed
-before plotting.}
+\item{exclude_baseline}{Logical; drop baseline rows first.}
 
-\item{is_baseline_col}{Metadata column flagging baseline rows
-(default \code{"IsBaseline"}). See \code{\link{pcoa_config}}.
-#' @param facet_var     Optional column to facet by
-(e.g. \code{"Timepoint"} for separate Phase panels).}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{facet_var}{Optional metadata column to facet by (or NULL).}
+\item{facet_var}{Optional column to facet by, or \code{NULL}.}
 
-\item{marker_size}{Point size (default 3).}
+\item{marker_size}{Point size.}
 
-\item{marker_alpha}{Point opacity (default 0.85).}
+\item{marker_alpha}{Point opacity.}
+
+\item{title, y_label}{Optional plot title and y-axis label (defaults describe
+an alpha-diversity metric; set them when plotting another measurement).}
 }
 \value{
-A \code{ggplot} object. Can be passed to \code{export_alpha_tiff()}.
+A \code{ggplot} object.
 }
 \description{
-Designed to work directly with the \code{meta_enriched} data frame
-produced by \code{prepare_all()} in data.R.
+Alpha diversity boxplot with jittered points and optional paired lines
 }

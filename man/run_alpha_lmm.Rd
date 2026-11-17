@@ -20,34 +20,27 @@ run_alpha_lmm(
 
 \item{metric}{Alpha diversity column to model (e.g. \code{"Shannon"}).}
 
-\item{fixed_formula}{Free-text fixed-effects formula fragment (no
-leading \code{~}, no random effect term). Supports \code{+}, \code{*},
-\code{:}. Column names with spaces or special characters must be
-backtick-quoted, e.g. \code{`Time Point`}.
-Default: \code{"Treatment + Timepoint + Sequence"}.}
+\item{fixed_formula}{Fixed-effects formula without \code{~} or random
+effect. Backtick-quote names with spaces.}
 
-\item{random_effect}{Metadata column for the random intercept
-(default \code{"CatID"}).}
+\item{random_effect}{One or more columns, each added as its own random
+intercept, e.g. \code{c("CatID", "Litter")} gives
+\code{(1|CatID) + (1|Litter)}. Nested designs work as crossed terms as
+long as IDs are unique across groups (e.g. litter "L1" is never reused in
+another house).}
 
-\item{treatment_ref}{Reference level for the treatment variable
-(default \code{"CON"}).}
+\item{treatment_ref}{Reference level of the treatment column.}
 
-\item{treatment_col}{Name of the treatment column (default
-\code{"Treatment"}).}
+\item{treatment_col}{Treatment column name.}
 
-\item{is_baseline_col}{Column flagging baseline rows (default
-\code{"IsBaseline"}).}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{padj_method}{p-value adjustment method (default \code{"BH"}).}
+\item{padj_method}{p-value adjustment method for \code{p_adjusted}.}
 }
 \value{
 A data frame with one row per model term.
 }
 \description{
-Accepts a free-text fixed-effects formula fragment, so interactions are
-supported directly, e.g. \code{fixed_formula = "Treatment * Timepoint"}
-or \code{"Treatment + Timepoint + Treatment:Sequence"}.
-The random effect (\code{random_effect}) is always a single random
-intercept, e.g. \code{(1|CatID)}. Baseline samples are automatically
-excluded.
+Baseline samples are excluded from the model rows. Interactions are
+supported in \code{fixed_formula}, e.g. \code{"Treatment * Timepoint"}.
 }

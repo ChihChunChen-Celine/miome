@@ -2,31 +2,22 @@
 % Please edit documentation in R/summarize_abundance.R
 \name{get_relative_abundances}
 \alias{get_relative_abundances}
-\title{Convert an OTU/taxonomy count table to relative abundance only}
+\title{Convert a taxonomy count table to relative abundance (\%)}
 \usage{
-get_relative_abundances(counts, remove_first_row = TRUE, pct_tol = 1)
+get_relative_abundances(counts, remove_first_row = "auto", pct_tol = 1)
 }
 \arguments{
-\item{counts}{Data frame of taxon abundances, taxa as rows (row
-names = taxon/clade string), samples as columns. Typically read with
-\code{read.delim(..., skip = 1, row.names = 1, check.names = FALSE)}
-from a QIIME2 taxa-by-level export.}
+\item{counts}{Data frame of taxon abundances, taxa as rows (row names =
+taxon), samples as columns.}
 
-\item{remove_first_row}{Logical; drop the first row of \code{counts}
-before processing (e.g. a stray header/comment row). Default
-\code{TRUE}.}
+\item{remove_first_row}{\code{"auto"} (drop the first row only if it is
+non-numeric), \code{TRUE} or \code{FALSE}.}
 
-\item{pct_tol}{Tolerance (percentage points) around 100 for a sample
-column to be treated as "already percent" rather than raw counts.
-Default 1.}
+\item{pct_tol}{Kept for compatibility (unused).}
 }
 \value{
-A data frame: \code{Taxon} column plus one relative-abundance
-  column per sample.
+Data frame: \code{Taxon} column plus one column per sample.
 }
 \description{
-Same conversion logic as \code{summarize_abundance()} (auto-detects and
-skips sample columns already in percent) but skips the group-summary
-step and returns the full per-sample relative-abundance table. Used for
-the "Relative Abundances" sheet in \code{export_abundance_workbook()}.
+Convert a taxonomy count table to relative abundance (\%)
 }

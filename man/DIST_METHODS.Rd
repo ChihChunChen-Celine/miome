@@ -7,9 +7,8 @@
 DIST_METHODS
 }
 \description{
-Restricted to methods actually implemented in \code{.compute_dist()}
-(data.R): most are passed straight to \code{vegan::vegdist()}, while
-\code{"aitchison"} is computed via a CLR transform + Euclidean distance
-and \code{"unifrac_weighted"} / \code{"unifrac_unweighted"} are computed
-via \code{phyloseq::UniFrac()} using an uploaded phylogenetic tree.
+Most are passed straight to \code{vegan::vegdist()}. \code{"aitchison"} is
+computed as a CLR transform + Euclidean distance. The two UniFrac options
+require a precomputed distance matrix (QIIME 2 \code{.qza} or plain
+\code{.tsv}) uploaded by the user; no phylogenetic tree is used.
 }

@@ -10,6 +10,7 @@ pcoa_config(
   timepoint_col = "Timepoint",
   sequence_col = "Sequence",
   is_baseline_col = "IsBaseline",
+  complete_subjects_only = FALSE,
   study_design = "crossover",
   dist_method = "bray",
   dist_method_label = "Bray-Curtis",
@@ -30,107 +31,50 @@ pcoa_config(
 )
 }
 \arguments{
-\item{subject_id_col}{Subject/animal ID column name.}
+\item{subject_id_col}{Subject / animal ID column (random effect, strata,
+paired lines).}
 
 \item{treatment_col}{Treatment column name.}
 
-\item{timepoint_col}{Timepoint column name.}
+\item{timepoint_col}{Timepoint column name (also orders paired lines).}
 
-\item{sequence_col}{Sequence column name.}
+\item{sequence_col}{Sequence column name (crossover designs).}
 
-\item{is_baseline_col}{Baseline flag column name.}
+\item{is_baseline_col}{Baseline flag column (TRUE/FALSE, Yes/No or 1/0).}
 
-\item{study_design}{Study design string (e.g. "crossover").}
+\item{complete_subjects_only}{Logical; leave out every subject that has
+fewer samples than the others (e.g. a drop-out with no final sample).}
 
-\item{dist_method}{Distance method.}
+\item{study_design}{Optional label for your records, e.g.
+\code{"crossover"}, \code{"longitudinal"} or \code{"cross-sectional"}.
+Not used by the app.}
 
-\item{dist_method_label}{Human-readable distance label.}
+\item{dist_method}{Distance method key, one of \code{DIST_METHODS}.}
 
-\item{default_covariates}{Default PERMANOVA covariates.}
+\item{dist_method_label}{Human-readable distance label for plot titles.}
 
-\item{default_strata}{Default strata column.}
+\item{default_covariates}{Default PERMANOVA covariates (Shiny UI).}
 
-\item{padj_method}{P-value adjustment method.}
+\item{default_strata}{Default strata column (Shiny UI); \code{NULL} = none.}
 
-\item{alpha_metrics}{Character vector of alpha diversity metrics.}
+\item{padj_method}{P-value adjustment method, see \code{PADJ_METHODS}.}
 
-\item{alpha_export_w_in}{Alpha plot export width (inches).}
+\item{alpha_metrics}{Alpha diversity metrics, see \code{ALPHA_METRICS}.}
 
-\item{alpha_export_h_in}{Alpha plot export height (inches).}
+\item{alpha_export_w_in, alpha_export_h_in}{Alpha plot export size (inches).}
 
-\item{plot_title}{Plot title.}
+\item{plot_title}{Title shown on PCoA plots.}
 
-\item{marker_size}{3D marker size.}
+\item{marker_size, marker_opacity}{Point aesthetics.}
 
-\item{marker_opacity}{3D marker opacity.}
+\item{export_dpi, export_w_in, export_h_in}{2D TIFF export settings.}
 
-\item{export_dpi}{Export resolution.}
-
-\item{export_w_in}{Export width (inches).}
-
-\item{export_h_in}{Export height (inches).}
-
-\item{export_3d_w_px}{3D export width (px).}
-
-\item{export_3d_h_px}{3D export height (px).}
-
-\item{maaslin_normalization}{Default normalisation passed to MaAsLin3
-(\code{"TSS"}, \code{"CLR"}, \code{"CSS"}, \code{"NONE"}).}
-
-\item{maaslin_transform}{Default transform (\code{"LOG"},
-\code{"SQRT"}, \code{"NONE"}).}
-
-\item{maaslin_method}{Analysis method (\code{"LM"},
-\code{"NEGBIN"}, \code{"ZINB"}).}
-
-\item{maaslin_min_prevalence}{Minimum prevalence filter (default 0.1).}
-
-\item{maaslin_min_abundance}{Minimum abundance filter (default 0).}
-
-\item{maaslin_max_sig}{FDR threshold for reporting (default 0.25).}
+\item{export_3d_w_px, export_3d_h_px}{3D PNG/TIFF snapshot size (pixels).}
 }
 \value{
 A list of class \code{pcoa_config}.
 }
 \description{
-Build a Microbiome Explorer configuration object
+Column-name arguments may be \code{""} when your metadata has no such
+column; every function then simply skips the step that needs it.
 }
-\section{Beta Diversity Parameters}{
-
-\describe{
-  \item{dist_method}{Distance metric key passed to \code{vegan::vegdist}.
-    Choose from \code{DIST_METHODS}.}
-  \item{default_covariates}{Character vector of metadata columns to
-    pre-select as covariates in PERMANOVA (Shiny UI default).}
-  \item{default_strata}{Metadata column to pre-select for restricted
-    permutations (Shiny UI default). Set \code{NULL} to disable.}
-  \item{padj_method}{P-value adjustment method for pairwise tests.
-    Choose from \code{PADJ_METHODS}.}
-}
-}
-
-\section{Alpha Diversity Parameters}{
-
-\describe{
-  \item{alpha_metrics}{Character vector of metrics to compute.
-    Choose from \code{ALPHA_METRICS}.}
-  \item{alpha_export_w_in, alpha_export_h_in}{Alpha diversity plot
-    export dimensions in inches.}
-}
-}
-
-\section{Plot / Export Parameters}{
-
-\describe{
-  \item{plot_title}{Title string shown on PCoA plots.}
-  \item{dist_method_label}{Human-readable label for the distance metric
-    (used in plot subtitles).}
-  \item{marker_size, marker_opacity}{Point aesthetics.}
-  \item{export_dpi, export_w_in, export_h_in}{TIFF export settings.}
-  \item{export_3d_w_px, export_3d_h_px}{In-browser 3D PNG snapshot size.}
-  \item{study_design}{Study design label, e.g. \code{"crossover"} or
-    \code{"parallel"}. Used by app.R to default the "connect paired
-    samples" checkbox to TRUE for crossover designs.}
-}
-}
-

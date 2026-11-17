@@ -2,7 +2,7 @@
 % Please edit documentation in R/stats.R
 \name{run_alpha_lm_simple}
 \alias{run_alpha_lm_simple}
-\title{Simple linear model for alpha diversity (no random effects)}
+\title{Linear model for alpha diversity (no random effects)}
 \usage{
 run_alpha_lm_simple(
   meta_enriched,
@@ -19,28 +19,20 @@ run_alpha_lm_simple(
 
 \item{metric}{Alpha diversity column to model (e.g. \code{"Shannon"}).}
 
-\item{fixed_formula}{Free-text fixed-effects formula fragment (no
-leading \code{~}, no random effect term). Supports \code{+}, \code{*},
-\code{:}. Column names with spaces or special characters must be
-backtick-quoted, e.g. \code{`Time Point`}.
-Default: \code{"Treatment + Timepoint + Sequence"}.}
+\item{fixed_formula}{Fixed-effects formula without \code{~} or random
+effect. Backtick-quote names with spaces.}
 
-\item{treatment_ref}{Reference level for the treatment variable
-(default \code{"CON"}).}
+\item{treatment_ref}{Reference level of the treatment column.}
 
-\item{treatment_col}{Name of the treatment column (default
-\code{"Treatment"}).}
+\item{treatment_col}{Treatment column name.}
 
-\item{is_baseline_col}{Column flagging baseline rows (default
-\code{"IsBaseline"}).}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{padj_method}{p-value adjustment method (default \code{"BH"}).}
+\item{padj_method}{p-value adjustment method for \code{p_adjusted}.}
 }
 \value{
 A data frame with one row per model term.
 }
 \description{
-Fallback when only one observation per subject exists, or for
-exploratory analysis without mixed modelling.
-For the crossover design, \code{run_alpha_lmm()} is preferred.
+Fallback when each subject has a single observation.
 }

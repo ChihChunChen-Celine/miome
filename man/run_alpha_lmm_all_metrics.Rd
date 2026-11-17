@@ -2,7 +2,7 @@
 % Please edit documentation in R/stats.R
 \name{run_alpha_lmm_all_metrics}
 \alias{run_alpha_lmm_all_metrics}
-\title{Run LMM for all available alpha diversity metrics}
+\title{Fit the LMM for every alpha diversity metric}
 \usage{
 run_alpha_lmm_all_metrics(
   meta_enriched,
@@ -11,40 +11,63 @@ run_alpha_lmm_all_metrics(
   treatment_ref = "CON",
   treatment_col = "Treatment",
   is_baseline_col = "IsBaseline",
-  padj_method = "BH"
+  padj_method = "BH",
+  add_baseline = TRUE,
+  fdr_target = c("main", "interaction", "auto"),
+  fdr_term_pattern = NULL
 )
 }
 \arguments{
 \item{meta_enriched}{Data frame from \code{pcoa_obj$meta_enriched}.}
 
-\item{random_effect}{Subject ID column for random intercept
-(default \code{"CatID"}).}
+\item{fixed_formula}{Fixed-effects formula without \code{~} or random
+effect. Backtick-quote names with spaces.}
 
-\item{treatment_ref}{Reference level for treatment
-(default \code{"CON"}).}
+\item{random_effect}{One or more columns, each added as its own random
+intercept, e.g. \code{c("CatID", "Litter")} gives
+\code{(1|CatID) + (1|Litter)}. Nested designs work as crossed terms as
+long as IDs are unique across groups (e.g. litter "L1" is never reused in
+another house).}
 
-\item{treatment_col}{Treatment column name (default \code{"Treatment"}).}
+\item{treatment_ref}{Reference level of the treatment column.}
 
-\item{is_baseline_col}{Baseline flag column (default \code{"IsBaseline"}).}
+\item{treatment_col}{Treatment column name.}
 
-\item{padj_method}{p-value adjustment method (default \code{"BH"}).}
+\item{is_baseline_col}{Baseline flag column.}
 
-\item{fixed_effects}{Character vector of fixed effects to include
-(excluding the auto-detected baseline covariate).
-Default: \code{c("Timepoint", "Sequence", "Treatment")}.}
+\item{padj_method}{p-value adjustment method for \code{p_adjusted}.}
+
+\item{add_baseline}{Logical; prepend \code{Baseline_<metric>} when present.}
+
+\item{fdr_target}{Which treatment terms get the cross-metric adjustment:
+\code{"main"} (treatment main effects, default), \code{"interaction"}
+(interaction terms involving the treatment) or \code{"auto"} (the
+interaction when the model has one, otherwise the main effect). Terms are matched exactly
+on the treatment column's levels, so another column whose name merely
+starts the same (e.g. \code{Group2} next to \code{Group}) is not picked up.}
+
+\item{fdr_term_pattern}{Optional Perl regex that overrides
+\code{fdr_target} for custom selections.}
 }
 \value{
-A combined data frame with one row per model term per metric,
-  with FDR correction applied across Treatment terms only.
+One combined data frame, one row per term per metric. Besides
+  \code{p_adjusted} (within one metric's model) it carries two
+  cross-metric adjustments of the treatment terms, identical when the
+  treatment has two groups:
+  \describe{
+    \item{p_adj_across_metrics}{each comparison adjusted over the metrics
+      only (e.g. the MUO-vs-Control p-values of all metrics).}
+    \item{p_adj_across_metrics_and_groups}{every treatment term of every
+      metric adjusted as one family. Usually the larger p-value, though
+      Benjamini-Hochberg is not monotone in family size, so not always.}
+  }
 }
 \description{
-Loops over Shannon, Simpson, Observed_ASVs, and Chao1 (any present
-in \code{meta_enriched}), fits a separate LMM for each, and returns
-a single combined data frame.
-}
-\details{
-For the crossover design, the function automatically detects
-and includes the corresponding baseline covariate column
-(e.g. \code{Baseline_Shannon} for the Shannon metric) if present
-in \code{meta_enriched}.
+Loops over every metric in \code{ALPHA_METRICS} present in
+\code{meta_enriched}. With no \code{random_effect} (\code{NULL} or
+\code{character(0)}) an ordinary linear model is fitted instead, for
+studies with one sample per animal. With \code{add_baseline = TRUE} each metric's own
+baseline value (\code{Baseline_<metric>}) is added as the first covariate
+when available. A cross-metric adjusted p-value is computed for the
+treatment terms chosen with \code{fdr_target}.
 }
